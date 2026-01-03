@@ -19,33 +19,40 @@ aws_access_key = os.environ.get('AWS_ACCESS_KEY_ID')
 aws_secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
 aws_session_token = os.environ.get('AWS_SESSION_TOKEN')
 
+workingDir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(workingDir, "config.json")
+    
 def load_config():
     config = None
-    
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(script_dir, "config.json")
-    
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
-    
+
+    try: 
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading config: {e}")
+        config = {}
+
+        response = sts.get_caller_identity()
+        accountId = response["Account"]
+        config['accountId'] = accountId
+
+        session = boto3.Session()
+        region = session.region_name
+        config['region'] = region
+        config['projectName'] = "es"
+        
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2)    
     return config
 
 config = load_config()
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-config_path = os.path.join(script_dir, "config.json")
-
 accountId = config.get('accountId')
 if not accountId:
-    session = boto3.Session()
-    region = session.region_name
-
     sts = boto3.client("sts")
     response = sts.get_caller_identity()
     accountId = response["Account"]
     config['accountId'] = accountId
-    config['region'] = region
-    config['projectName'] = "mop"
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
 

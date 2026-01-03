@@ -18,23 +18,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("streamlit")
 
-try:
-    user_info = pwd.getpwuid(os.getuid())
-    username = user_info.pw_name
-    home_dir = user_info.pw_dir
-    logger.info(f"Username: {username}")
-    logger.info(f"Home directory: {home_dir}")
-except (ImportError, KeyError):
-    username = "root"
-    logger.info(f"Username: {username}")
-    pass  
-
-if username == "root":
-    environment = "system"
-else:
-    environment = "user"
-logger.info(f"environment: {environment}")
-
 os.environ["DEV"] = "true"  # Skip user confirmation of get_user_input
 
 # title
@@ -143,20 +126,20 @@ with st.sidebar:
         '🖊️ 사용 모델을 선택하세요',
         (
             "Claude 4.5 Haiku",
-            'Claude 4.5 Sonnet',
-            'Claude 4 Opus', 
-            'Claude 4 Sonnet', 
-            'Claude 3.7 Sonnet', 
-            'Claude 3.5 Sonnet', 
-            'Claude 3.0 Sonnet', 
-            'Claude 3.5 Haiku', 
-            'OpenAI OSS 120B',
-            'OpenAI OSS 20B',
-            'Nova 2 Lite',
+            "Claude 4.5 Sonnet",
+            "Claude 4 Opus", 
+            "Claude 4 Sonnet", 
+            "Claude 3.7 Sonnet", 
+            "Claude 3.5 Sonnet", 
+            "Claude 3.0 Sonnet", 
+            "Claude 3.5 Haiku", 
+            "OpenAI OSS 120B",
+            "OpenAI OSS 20B",
+            "Nova 2 Lite",
             "Nova Premier", 
-            'Nova Pro', 
-            'Nova Lite', 
-            'Nova Micro',   
+            "Nova Pro", 
+            "Nova Lite", 
+            "Nova Micro",     
         ), index=0
     )
 

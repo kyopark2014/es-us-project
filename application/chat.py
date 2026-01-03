@@ -66,24 +66,11 @@ config = utils.load_config()
 print(f"config: {config}")
 
 projectName = config.get("projectName", "mop")
-bedrock_region = config.get("region", "")
-
-accountId = config.get("accountId", "")
-if not accountId or not bedrock_region:
-    sts = boto3.client("sts")
-    response = sts.get_caller_identity()
-    accountId = response["Account"]
-    bedrock_region = response["Region"]
-
-    config["accountId"] = accountId
-    config["region"] = bedrock_region
-
-    # save config
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2)
+region = config.get("region", "us-west-2")
+accountId = config.get("accountId")
     
-knowledge_base_name = projectName
-numberOfDocs = 4
+knowledge_base_id = config.get('knowledge_base_id')
+number_of_results = 4
 
 MSG_LENGTH = 100    
 
@@ -377,71 +364,6 @@ def traslation(chat, text, input_language, output_language):
         raise Exception ("Not able to request to LLM")
 
     return msg[msg.find('<result>')+8:len(msg)-9] # remove <result> tag
-
-def get_parallel_processing_chat(models, selected):
-    global model_type
-    profile = models[selected]
-    bedrock_region =  profile['bedrock_region']
-    modelId = profile['model_id']
-    model_type = profile['model_type']
-    maxOutputTokens = 4096
-    logger.info(f'selected_chat: {selected}, bedrock_region: {bedrock_region}, modelId: {modelId}, model_type: {model_type}')
-
-    if profile['model_type'] == 'nova':
-        STOP_SEQUENCE = '"\n\n<thinking>", "\n<thinking>", " <thinking>"'
-    elif profile['model_type'] == 'claude':
-        STOP_SEQUENCE = "\n\nHuman:" 
-    elif profile['model_type'] == 'openai':
-        STOP_SEQUENCE = "" 
-                          
-    # bedrock   
-    if aws_access_key and aws_secret_key:
-        boto3_bedrock = boto3.client(
-            service_name='bedrock-runtime',
-            region_name=bedrock_region,
-            aws_access_key_id=aws_access_key,
-            aws_secret_access_key=aws_secret_key,
-            aws_session_token=aws_session_token,
-            config=Config(
-                retries = {
-                    'max_attempts': 30
-                }
-            )
-        )
-    else:
-        boto3_bedrock = boto3.client(
-            service_name='bedrock-runtime',
-            region_name=bedrock_region,
-            config=Config(
-                retries = {
-                    'max_attempts': 30
-                }
-            )
-        )
-
-    if profile['model_type'] != 'openai':
-        parameters = {
-            "max_tokens":maxOutputTokens,     
-            "temperature":0.1,
-            "top_k":250,
-            "top_p":0.9,
-            "stop_sequences": [STOP_SEQUENCE]
-        }
-    else:
-        parameters = {
-            "max_tokens":maxOutputTokens,     
-            "temperature":0.1,
-            "top_k":250,
-            "top_p":0.9,
-        }
-
-    chat = ChatBedrock(   # new chat model
-        model_id=modelId,
-        client=boto3_bedrock, 
-        model_kwargs=parameters,
-    )        
-    
-    return chat
 
 def show_extended_thinking(st, result):
     # logger.info(f"result: {result}")
@@ -770,10 +692,22 @@ def get_rag_prompt(text):
 
     return rag_chain
 
-bedrock_agent_runtime_client = boto3.client("bedrock-agent-runtime", region_name=bedrock_region)
-knowledge_base_id = config['knowledge_base_id']
-number_of_results = 4
+if aws_access_key and aws_secret_key:
+    bedrock_agent_runtime_client = boto3.client(
+        "bedrock-agent-runtime",
+        region_name=region,
+        aws_access_key_id=aws_access_key,
+        aws_secret_access_key=aws_secret_key,
+        aws_session_token=aws_session_token,
+    )
+else:
+    bedrock_agent_runtime_client = boto3.client(
+        "bedrock-agent-runtime",
+        region_name=region
+    )
+
 def retrieve(query):
+    logger.info(f"region: {region}, knowledge_base_id: {knowledge_base_id}")
     response = bedrock_agent_runtime_client.retrieve(
         retrievalQuery={"text": query},
         knowledgeBaseId=knowledge_base_id,
