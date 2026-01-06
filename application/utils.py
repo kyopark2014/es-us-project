@@ -32,14 +32,15 @@ def load_config():
         logger.error(f"Error loading config: {e}")
         config = {}
 
-        response = sts.get_caller_identity()
-        accountId = response["Account"]
-        config['accountId'] = accountId
-
         session = boto3.Session()
         region = session.region_name
         config['region'] = region
-        config['projectName'] = "es"
+        config['projectName'] = "lgm"
+        
+        sts = boto3.client("sts")
+        response = sts.get_caller_identity()
+        accountId = response["Account"]
+        config['accountId'] = accountId
         
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)    

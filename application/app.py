@@ -5,7 +5,6 @@ import mcp_config
 import logging
 import sys
 import os
-import pwd 
 import asyncio
 import qa_agent
 
@@ -127,6 +126,7 @@ with st.sidebar:
         (
             "Claude 4.5 Haiku",
             "Claude 4.5 Sonnet",
+            "Claude 4.5 Opus",  
             "Claude 4 Opus", 
             "Claude 4 Sonnet", 
             "Claude 3.7 Sonnet", 
@@ -139,7 +139,7 @@ with st.sidebar:
             "Nova Premier", 
             "Nova Pro", 
             "Nova Lite", 
-            "Nova Micro",     
+            "Nova Micro",       
         ), index=0
     )
 

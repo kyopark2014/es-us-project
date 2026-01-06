@@ -31,7 +31,6 @@ sharing_url = config["sharing_url"] if "sharing_url" in config else None
 s3_prefix = "docs"
 capture_prefix = "captures"
 
-mcp_server_info = {}
 user_id = "langgraph"
 
 class State(TypedDict):
@@ -79,6 +78,35 @@ async def call_model(state: State, config):
     model = chatModel.bind_tools(tools)
 
     try:
+        messages = []
+        for msg in state["messages"]:
+            if isinstance(msg, ToolMessage):
+                content = msg.content
+                if isinstance(content, list):
+                    text_parts = []
+                    for item in content:
+                        if isinstance(item, dict):
+                            # Remove 'id' field if present, but keep other fields
+                            item_clean = {k: v for k, v in item.items() if k != 'id'}
+                            if 'text' in item_clean:
+                                text_parts.append(item_clean['text'])
+                            elif 'content' in item_clean:
+                                text_parts.append(str(item_clean['content']))
+                        elif isinstance(item, str):
+                            text_parts.append(item)
+                    content = '\n'.join(text_parts) if text_parts else str(content)
+                elif not isinstance(content, str):
+                    content = str(content)
+                
+                # Create ToolMessage without 'name' field (Bedrock doesn't accept it)
+                tool_msg = ToolMessage(
+                    content=content,
+                    tool_call_id=msg.tool_call_id
+                )
+                messages.append(tool_msg)
+            else:
+                messages.append(msg)
+        
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", system),
@@ -87,7 +115,7 @@ async def call_model(state: State, config):
         )
         chain = prompt | model
             
-        response = await chain.ainvoke(state["messages"])
+        response = await chain.ainvoke(messages)
         logger.info(f"response of call_model: {response}")
 
     except Exception:
@@ -128,6 +156,72 @@ def buildChatAgent(tools):
     workflow.add_node("agent", call_model)
     workflow.add_node("action", tool_node)
     workflow.add_edge(START, "agent")
+    workflow.add_conditional_edges(
+        "agent",
+        should_continue,
+        {
+            "continue": "action",
+            "end": END,
+        },
+    )
+    workflow.add_edge("action", "agent")
+
+    return workflow.compile() 
+
+async def plan_node(state: State, config):
+    logger.info(f"###### plan_node ######")
+
+    containers = config.get("configurable", {}).get("containers", None)
+
+    system=(
+        "For the given objective, come up with a simple step by step plan."
+        "This plan should involve individual tasks, that if executed correctly will yield the correct answer." 
+        "Do not add any superfluous steps."
+        "The result of the final step should be the final answer. Make sure that each step has all the information needed."
+        "The plan should be returned in <plan> tag."
+    )
+
+    chatModel = chat.get_chat(extended_thinking="Disable")
+    
+    try:
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system),
+                MessagesPlaceholder(variable_name="messages"),
+            ]
+        )
+        chain = prompt | chatModel
+            
+        result = await chain.ainvoke(state["messages"])
+        # logger.info(f"result of plan_node: {result.content}")
+
+        plan = result.content[result.content.find('<plan>')+6:result.content.find('</plan>')]
+        logger.info(f"plan: {plan}")
+
+        plan = plan.strip()
+        response = HumanMessage(content="다음의 plan을 참고하여 답변하세요.\n" + plan)
+
+        if containers is not None:
+            chat.add_notification(containers, '계획:\n' + plan)
+
+    except Exception:
+        response = HumanMessage(content="")
+
+        err_msg = traceback.format_exc()
+        logger.info(f"error message: {err_msg}")
+
+    return {"messages": [response]}
+
+def buildChatAgentWithPlan(tools):
+    tool_node = ToolNode(tools)
+
+    workflow = StateGraph(State)
+
+    workflow.add_node("plan", plan_node)
+    workflow.add_node("agent", call_model)
+    workflow.add_node("action", tool_node)
+    workflow.add_edge(START, "plan")
+    workflow.add_edge("plan", "agent")
     workflow.add_conditional_edges(
         "agent",
         should_continue,
