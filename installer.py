@@ -19,6 +19,7 @@ from botocore.exceptions import ClientError
 # Configuration
 project_name = "lgm"
 region = "us-west-2"
+git_name = "lgm-project"
 
 sts_client = boto3.client("sts", region_name=region)
 account_id = sts_client.get_caller_identity()["Account"]
@@ -2657,7 +2658,7 @@ def create_cloudfront_distribution(alb_info: Dict[str, str], s3_bucket_name: str
         raise
 
 
-def get_setup_script(environment: Dict[str, str], git_name: str = "mcp") -> str:
+def get_setup_script(environment: Dict[str, str], git_name: str) -> str:
     """Generate setup script for EC2 instance."""
     return f"""#!/bin/bash
 exec > >(tee /var/log/user-data.log) 2>&1
@@ -2698,7 +2699,7 @@ chown -R ssm-user:ssm-user /home/ssm-user/{git_name}
 # Build and run docker with volume mount for config.json
 cd /home/ssm-user/{git_name}
 docker build -f Dockerfile -t streamlit-app .
-docker run -d --restart=always -p 8501:8501 -v $(pwd)/application/config.json:/app/application/config.json --name mcp-app streamlit-app
+docker run -d --restart=always -p 8501:8501 -v $(pwd)/application/config.json:/app/application/config.json --name app streamlit-app
 
 # Make update.sh executable for manual execution via SSM
 chmod a+rx update.sh
@@ -2707,7 +2708,7 @@ echo "Setup completed successfully" >> /var/log/user-data.log
 """
 
 
-def run_setup_script_via_ssm(instance_id: str, environment: Dict[str, str], git_name: str = "mcp") -> Dict[str, str]:
+def run_setup_script_via_ssm(instance_id: str, environment: Dict[str, str], git_name: str = project_name) -> Dict[str, str]:
     """Run setup script on existing EC2 instance using SSM Run Command."""
     logger.info(f"Running setup script on EC2 instance {instance_id} via SSM")
     
@@ -2839,8 +2840,7 @@ def create_ec2_instance(vpc_info: Dict[str, str], ec2_role_arn: str,
         "s3_arn": f"arn:aws:s3:::{s3_bucket_name}",
         "sharing_url": f"https://{cloudfront_domain}"
     }
-    
-    git_name = "mcp"
+        
     user_data_script = get_setup_script(environment, git_name)
     
     # Get instance profile name
