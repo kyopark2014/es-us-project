@@ -32,8 +32,32 @@ def load_config(mcp_type):
         mcp_type = "repl_coder"
     elif mcp_type == "knowledge base":
         mcp_type = "kb-retriever"
+
+    if mcp_type == "basic":
+        return {
+            "mcpServers": {
+                "search": {
+                    "command": "python",
+                    "args": [
+                        f"{workingDir}/mcp_server_basic.py"
+                    ]
+                }
+            }
+        }
     
-    if mcp_type == "use-aws": 
+    elif mcp_type == "tavily-search":
+        return {
+            "mcpServers": {
+                "tavily-search": {
+                    "command": "python",
+                    "args": [
+                        f"{workingDir}/mcp_server_tavily.py"
+                    ]
+                }
+            }
+        }
+        
+    elif mcp_type == "use-aws": 
         return {
             "mcpServers": {
                 "use-aws": {

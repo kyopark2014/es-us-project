@@ -901,7 +901,15 @@ def get_tool_info(tool_name, tool_content):
     # aws document
     elif tool_name == "search_documentation":
         try:
-            json_data = json.loads(tool_content)
+            # Check if tool_content is already a list
+            if isinstance(tool_content, list):
+                json_data = tool_content
+            elif isinstance(tool_content, str):
+                json_data = json.loads(tool_content)
+            else:
+                # Try to convert to list if it's another type
+                json_data = list(tool_content) if hasattr(tool_content, '__iter__') else [tool_content]
+            
             for item in json_data:
                 logger.info(f"item: {item}")
                 
@@ -924,8 +932,8 @@ def get_tool_info(tool_name, tool_content):
                 else:
                     logger.info(f"Invalid item format: {item}")
                     
-        except json.JSONDecodeError:
-            logger.info(f"JSON parsing error: {tool_content}")
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.info(f"JSON parsing error: {e}, tool_content type: {type(tool_content)}, tool_content: {tool_content}")
             pass
 
         logger.info(f"content: {content}")

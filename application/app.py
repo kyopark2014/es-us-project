@@ -20,7 +20,7 @@ logger = logging.getLogger("streamlit")
 os.environ["DEV"] = "true"  # Skip user confirmation of get_user_input
 
 # title
-st.set_page_config(page_title='MOP', page_icon=None, layout="centered", initial_sidebar_state="auto", menu_items=None)
+st.set_page_config(page_title='lgm-project', page_icon=None, layout="centered", initial_sidebar_state="auto", menu_items=None)
 
 mode_descriptions = {
     "일상적인 대화": [
@@ -70,12 +70,12 @@ with st.sidebar:
 
         # Change radio to checkbox
         mcp_options = [
-            "use-aws", "knowledge base", "code interpreter", "terminal", "filesystem", "aws_documentation","사용자 설정"
+            "use-aws", "tavily-search", "knowledge base", "code interpreter", "terminal", "filesystem", "aws_documentation","사용자 설정"
         ]
         mcp_selections = {}
-        default_selections = ["knowledge base", "code interpreter"]
+        default_selections = ["knowledge base", "code interpreter", "aws_documentation"]
         
-        with st.expander("MCP 옵션 선택", expanded=True):            
+        with st.expander("MCP 옵션 선택", expanded=True):
             for option in mcp_options:
                 default_value = option in default_selections
                 mcp_selections[option] = st.checkbox(option, key=f"mcp_{option}", value=default_value)
