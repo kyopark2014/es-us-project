@@ -1884,10 +1884,13 @@ def create_vpc() -> Dict[str, str]:
             if e.response["Error"]["Code"] != "RouteAlreadyExists":
                 logger.warning(f"Failed to create endpoint for {service}: {e}")
     
+    logger.info("  Waiting to ensure the deployment of VPC and others...")
+    time.sleep(30)
+
     logger.debug(f"VPC endpoints created")
     
     logger.info(f"✓ VPC created: {vpc_id}")
-    
+
     return {
         "vpc_id": vpc_id,
         "public_subnets": public_subnets,
