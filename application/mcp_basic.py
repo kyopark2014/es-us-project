@@ -147,7 +147,6 @@ def get_chat(extended_thinking):
             "max_tokens":maxOutputTokens,     
             "temperature":0.1,
             "top_k":250,
-            "top_p":0.9,
             "stop_sequences": [STOP_SEQUENCE]
         }
 
