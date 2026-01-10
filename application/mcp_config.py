@@ -2,8 +2,6 @@ import logging
 import sys
 import utils
 import os
-import boto3
-import json
 
 logging.basicConfig(
     level=logging.INFO,  # Default to INFO level
