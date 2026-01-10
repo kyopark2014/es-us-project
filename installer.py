@@ -2942,6 +2942,10 @@ def create_cloudfront_distribution(alb_info: Dict[str, str], s3_bucket_name: str
             "OriginRequestPolicyId": "216adef6-5c7f-47e4-b989-5492eafa07d3",
             "Compress": True
         },
+        "CacheBehaviors": {
+            "Quantity": 0,
+            "Items": []
+        },
         "Origins": {
             "Quantity": 1,
             "Items": [
@@ -2959,6 +2963,12 @@ def create_cloudfront_distribution(alb_info: Dict[str, str], s3_bucket_name: str
         "Enabled": True,
         "PriceClass": "PriceClass_200"
     }
+    
+    # Debug: Log distribution config to verify it doesn't reference non-existent origins
+    logger.debug(f"Creating CloudFront distribution with config:")
+    logger.debug(f"  Origins: {[origin['Id'] for origin in distribution_config['Origins']['Items']]}")
+    logger.debug(f"  CacheBehaviors Quantity: {distribution_config['CacheBehaviors']['Quantity']}")
+    logger.debug(f"  DefaultCacheBehavior TargetOriginId: {distribution_config['DefaultCacheBehavior']['TargetOriginId']}")
 
     try:
         response = cloudfront_client.create_distribution(DistributionConfig=distribution_config)
