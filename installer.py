@@ -2923,7 +2923,7 @@ def create_cloudfront_distribution(alb_info: Dict[str, str], s3_bucket_name: str
     except Exception as e:
         logger.debug(f"Error checking existing distributions: {e}")
     
-    # Create CloudFront distribution with hybrid ALB + S3 origins
+    # Create CloudFront distribution with ALB origin only (S3 origin will be added later)
     distribution_config = {
         "CallerReference": f"{project_name}-{int(time.time())}",
         "Comment": f"CloudFront-for-{project_name}-Hybrid",
@@ -2941,41 +2941,6 @@ def create_cloudfront_distribution(alb_info: Dict[str, str], s3_bucket_name: str
             "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
             "OriginRequestPolicyId": "216adef6-5c7f-47e4-b989-5492eafa07d3",
             "Compress": True
-        },
-        "CacheBehaviors": {
-            "Quantity": 2,
-            "Items": [
-                {
-                    "PathPattern": "/images/*",
-                    "TargetOriginId": f"s3-{project_name}",
-                    "ViewerProtocolPolicy": "redirect-to-https",
-                    "AllowedMethods": {
-                        "Quantity": 2,
-                        "Items": ["GET", "HEAD"],
-                        "CachedMethods": {
-                            "Quantity": 2,
-                            "Items": ["GET", "HEAD"]
-                        }
-                    },
-                    "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
-                    "Compress": True
-                },
-                {
-                    "PathPattern": "/docs/*",
-                    "TargetOriginId": f"s3-{project_name}",
-                    "ViewerProtocolPolicy": "redirect-to-https",
-                    "AllowedMethods": {
-                        "Quantity": 2,
-                        "Items": ["GET", "HEAD"],
-                        "CachedMethods": {
-                            "Quantity": 2,
-                            "Items": ["GET", "HEAD"]
-                        }
-                    },
-                    "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
-                    "Compress": True
-                }
-            ]
         },
         "Origins": {
             "Quantity": 1,
@@ -3103,7 +3068,7 @@ def create_cloudfront_distribution(alb_info: Dict[str, str], s3_bucket_name: str
         
         # Update cache behaviors to include S3 origin paths
         existing_cache_behaviors = dist_config.get("CacheBehaviors", {}).get("Items", []).copy()
-        existing_path_patterns = {cb.get("PathPattern") for cb in existing_cache_behaviors}
+        existing_path_patterns = {cb.get("PathPattern") for cb in existing_cache_behaviors if cb.get("PathPattern")}
         
         # Add /images/* cache behavior if it doesn't exist
         if "/images/*" not in existing_path_patterns:
@@ -3141,11 +3106,11 @@ def create_cloudfront_distribution(alb_info: Dict[str, str], s3_bucket_name: str
                 "Compress": True
             })
         
-        if existing_cache_behaviors:
-            dist_config["CacheBehaviors"] = {
-                "Quantity": len(existing_cache_behaviors),
-                "Items": existing_cache_behaviors
-            }
+        # Always set CacheBehaviors (even if empty, CloudFront requires this field)
+        dist_config["CacheBehaviors"] = {
+            "Quantity": len(existing_cache_behaviors),
+            "Items": existing_cache_behaviors
+        }
         
         # Update distribution
         cloudfront_client.update_distribution(
