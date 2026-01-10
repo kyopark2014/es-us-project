@@ -78,7 +78,7 @@ doc_prefix = "docs/"
 
 MSG_LENGTH = 100    
 
-model_name = "Claude 4.0 Sonnet"
+model_name = "Claude 4 Sonnet"
 model_type = "claude"
 models = info.get_model_info(model_name)
 number_of_models = len(models)

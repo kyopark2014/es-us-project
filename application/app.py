@@ -140,7 +140,7 @@ with st.sidebar:
             "Nova Pro", 
             "Nova Lite", 
             "Nova Micro",       
-        ), index=0
+        ), index=4
     )
 
     # debug checkbox
