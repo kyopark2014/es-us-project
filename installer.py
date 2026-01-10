@@ -2964,7 +2964,7 @@ def create_cloudfront_distribution(alb_info: Dict[str, str], s3_bucket_name: str
                 "Sid": "AllowCloudFrontAccess",
                 "Effect": "Allow",
                 "Principal": {
-                    "AWS": oai_canonical_user_id
+                    "AWS": f"arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity {oai_id}"
                 },
                 "Action": "s3:GetObject",
                 "Resource": f"arn:aws:s3:::{s3_bucket_name}/*"
