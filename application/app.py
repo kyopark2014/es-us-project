@@ -20,7 +20,7 @@ logger = logging.getLogger("streamlit")
 os.environ["DEV"] = "true"  # Skip user confirmation of get_user_input
 
 # title
-st.set_page_config(page_title='lgm-project', page_icon=None, layout="centered", initial_sidebar_state="auto", menu_items=None)
+st.set_page_config(page_title='es-us', page_icon=None, layout="centered", initial_sidebar_state="auto", menu_items=None)
 
 mode_descriptions = {
     "일상적인 대화": [
