@@ -75,7 +75,7 @@ def isKorean(text):
         return False
 
 def get_chat(extended_thinking):
-    model_name = "Claude 4.5 Haiku"
+    model_name = "Claude 4 Sonnet"
     model_type = "claude"
     models = info.get_model_info(model_name)
     model_id = models[0]["model_id"]
