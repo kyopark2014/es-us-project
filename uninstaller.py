@@ -897,9 +897,37 @@ def delete_secret_groups_and_route_tables():
                 Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
             )
             for rt in route_tables["RouteTables"]:
-                if not any(assoc.get("Main") for assoc in rt["Associations"]):
+                # Skip main route table
+                if any(assoc.get("Main") for assoc in rt["Associations"]):
+                    continue
+                
+                # First, disassociate all subnet associations
+                for assoc in rt.get("Associations", []):
+                    if not assoc.get("Main"):
+                        try:
+                            ec2_client.disassociate_route_table(
+                                AssociationId=assoc["RouteTableAssociationId"]
+                            )
+                            logger.debug(f"  Disassociated route table {rt['RouteTableId']} from subnet association {assoc['RouteTableAssociationId']}")
+                        except ClientError as e:
+                            error_code = e.response.get("Error", {}).get("Code", "")
+                            if error_code != "InvalidAssociationID.NotFound":
+                                logger.debug(f"  Could not disassociate route table: {e}")
+                
+                # Wait a bit for disassociation to complete
+                time.sleep(1)
+                
+                # Now delete the route table
+                try:
                     ec2_client.delete_route_table(RouteTableId=rt["RouteTableId"])
                     logger.info(f"  ✓ Deleted route table: {rt['RouteTableId']} (VPC: {vpc_id})")
+                except ClientError as e:
+                    error_code = e.response.get("Error", {}).get("Code", "")
+                    if error_code == "DependencyViolation":
+                        logger.warning(f"  ⚠ Route table {rt['RouteTableId']} still has dependencies and cannot be deleted")
+                        logger.warning(f"     It will be deleted when VPC is deleted")
+                    elif error_code != "InvalidRouteTableID.NotFound":
+                        logger.warning(f"  Could not delete route table {rt['RouteTableId']}: {e}")
         
         logger.info("✓ Security groups processed")
     except Exception as e:
