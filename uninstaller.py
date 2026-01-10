@@ -152,6 +152,89 @@ def delete_alb_resources():
     except Exception as e:
         logger.error(f"Error deleting ALB resources: {e}")
 
+def delete_nat_gateways():
+    """Delete NAT gateways and their associated routes."""
+    logger.info("[3.5/9] Deleting NAT gateways")
+    
+    try:
+        # Get all NAT gateways that match the project name
+        nat_gws = ec2_client.describe_nat_gateways()
+        project_nat_gws = []
+        
+        for nat_gw in nat_gws["NatGateways"]:
+            if nat_gw["State"] not in ["deleted", "deleting"]:
+                # Check if NAT gateway has project name in tags
+                nat_gw_id = nat_gw["NatGatewayId"]
+                try:
+                    tags_response = ec2_client.describe_tags(
+                        Filters=[
+                            {"Name": "resource-id", "Values": [nat_gw_id]},
+                            {"Name": "resource-type", "Values": ["nat-gateway"]}
+                        ]
+                    )
+                    for tag in tags_response.get("Tags", []):
+                        if tag.get("Key") == "Name" and project_name in tag.get("Value", ""):
+                            project_nat_gws.append(nat_gw)
+                            logger.info(f"  Found NAT gateway to delete: {nat_gw_id} ({tag.get('Value')})")
+                            break
+                except Exception as e:
+                    logger.debug(f"  Error checking tags for NAT gateway {nat_gw_id}: {e}")
+        
+        if not project_nat_gws:
+            logger.info("  No NAT gateways found to delete")
+            return
+        
+        # Delete each NAT gateway
+        for nat_gw in project_nat_gws:
+            nat_gw_id = nat_gw["NatGatewayId"]
+            vpc_id = nat_gw["VpcId"]
+            
+            logger.info(f"  Deleting NAT gateway: {nat_gw_id}")
+            
+            # First, remove all routes that reference this NAT gateway
+            try:
+                route_tables = ec2_client.describe_route_tables(
+                    Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+                )
+                for rt in route_tables["RouteTables"]:
+                    routes_to_remove = []
+                    for route in rt["Routes"]:
+                        if route.get("NatGatewayId") == nat_gw_id:
+                            routes_to_remove.append(route)
+                    
+                    # Remove routes that reference this NAT gateway
+                    for route in routes_to_remove:
+                        try:
+                            ec2_client.delete_route(
+                                RouteTableId=rt["RouteTableId"],
+                                DestinationCidrBlock=route["DestinationCidrBlock"]
+                            )
+                            logger.info(f"    ✓ Removed route {route['DestinationCidrBlock']} -> {nat_gw_id} from route table {rt['RouteTableId']}")
+                        except ClientError as route_error:
+                            if route_error.response["Error"]["Code"] != "InvalidRoute.NotFound":
+                                logger.warning(f"    Could not remove route from {rt['RouteTableId']}: {route_error}")
+            except Exception as route_cleanup_error:
+                logger.warning(f"    Error cleaning up routes for NAT gateway {nat_gw_id}: {route_cleanup_error}")
+            
+            # Wait a moment for route deletion to propagate
+            time.sleep(5)
+            
+            # Now delete the NAT gateway
+            try:
+                ec2_client.delete_nat_gateway(NatGatewayId=nat_gw_id)
+                logger.info(f"    ✓ Deleted NAT Gateway: {nat_gw_id}")
+            except ClientError as nat_error:
+                logger.warning(f"    Could not delete NAT gateway {nat_gw_id}: {nat_error}")
+        
+        # Wait for NAT gateways to be deleted
+        if project_nat_gws:
+            logger.info("  Waiting for NAT gateways to be deleted...")
+            time.sleep(60)
+        
+        logger.info("✓ NAT gateways deleted")
+    except Exception as e:
+        logger.error(f"Error deleting NAT gateways: {e}")
+
 def delete_ec2_instances():
     """Delete EC2 instances."""
     logger.info("[3/9] Deleting EC2 instances")
@@ -230,17 +313,53 @@ def delete_single_vpc(vpc_id: str):
         except Exception as e:
             logger.warning(f"    Could not delete network interfaces: {e}")
         
-        # Delete NAT gateways
+        # Delete NAT gateways with proper route cleanup
         nat_gws = ec2_client.describe_nat_gateways(
             Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
         )
         for nat_gw in nat_gws["NatGateways"]:
-            if nat_gw["State"] != "deleted":
-                ec2_client.delete_nat_gateway(NatGatewayId=nat_gw["NatGatewayId"])
-                logger.info(f"    ✓ Deleted NAT Gateway: {nat_gw['NatGatewayId']}")
+            if nat_gw["State"] not in ["deleted", "deleting"]:
+                nat_gw_id = nat_gw["NatGatewayId"]
+                
+                # First, remove all routes that reference this NAT gateway
+                try:
+                    route_tables = ec2_client.describe_route_tables(
+                        Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+                    )
+                    for rt in route_tables["RouteTables"]:
+                        routes_to_remove = []
+                        for route in rt["Routes"]:
+                            if route.get("NatGatewayId") == nat_gw_id:
+                                routes_to_remove.append(route)
+                        
+                        # Remove routes that reference this NAT gateway
+                        for route in routes_to_remove:
+                            try:
+                                ec2_client.delete_route(
+                                    RouteTableId=rt["RouteTableId"],
+                                    DestinationCidrBlock=route["DestinationCidrBlock"]
+                                )
+                                logger.info(f"    ✓ Removed route {route['DestinationCidrBlock']} -> {nat_gw_id} from route table {rt['RouteTableId']}")
+                            except ClientError as route_error:
+                                if route_error.response["Error"]["Code"] != "InvalidRoute.NotFound":
+                                    logger.warning(f"    Could not remove route from {rt['RouteTableId']}: {route_error}")
+                except Exception as route_cleanup_error:
+                    logger.warning(f"    Error cleaning up routes for NAT gateway {nat_gw_id}: {route_cleanup_error}")
+                
+                # Wait a moment for route deletion to propagate
+                time.sleep(5)
+                
+                # Now delete the NAT gateway
+                try:
+                    ec2_client.delete_nat_gateway(NatGatewayId=nat_gw_id)
+                    logger.info(f"    ✓ Deleted NAT Gateway: {nat_gw_id}")
+                except ClientError as nat_error:
+                    logger.warning(f"    Could not delete NAT gateway {nat_gw_id}: {nat_error}")
         
-        # Wait for NAT gateways to be deleted
-        time.sleep(30)
+        # Wait longer for NAT gateways to be deleted
+        if nat_gws["NatGateways"]:
+            logger.info("    Waiting for NAT gateways to be deleted...")
+            time.sleep(60)
         
         # Release Elastic IPs
         eips = ec2_client.describe_addresses()
@@ -888,7 +1007,7 @@ def delete_secret_groups_and_route_tables():
         else:
             logger.info(f"  ✓ Successfully deleted {len(deleted_sgs)} security group(s)")
         
-        # delete route tables
+        # delete route tables with proper dependency cleanup
         # Get unique VPC IDs from security groups
         vpc_ids = {sg["VpcId"] for sg in sgs_to_delete if sg.get("VpcId")}
         
@@ -897,37 +1016,31 @@ def delete_secret_groups_and_route_tables():
                 Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
             )
             for rt in route_tables["RouteTables"]:
-                # Skip main route table
-                if any(assoc.get("Main") for assoc in rt["Associations"]):
-                    continue
-                
-                # First, disassociate all subnet associations
-                for assoc in rt.get("Associations", []):
-                    if not assoc.get("Main"):
-                        try:
-                            ec2_client.disassociate_route_table(
-                                AssociationId=assoc["RouteTableAssociationId"]
-                            )
-                            logger.debug(f"  Disassociated route table {rt['RouteTableId']} from subnet association {assoc['RouteTableAssociationId']}")
-                        except ClientError as e:
-                            error_code = e.response.get("Error", {}).get("Code", "")
-                            if error_code != "InvalidAssociationID.NotFound":
-                                logger.debug(f"  Could not disassociate route table: {e}")
-                
-                # Wait a bit for disassociation to complete
-                time.sleep(1)
-                
-                # Now delete the route table
-                try:
-                    ec2_client.delete_route_table(RouteTableId=rt["RouteTableId"])
-                    logger.info(f"  ✓ Deleted route table: {rt['RouteTableId']} (VPC: {vpc_id})")
-                except ClientError as e:
-                    error_code = e.response.get("Error", {}).get("Code", "")
-                    if error_code == "DependencyViolation":
-                        logger.warning(f"  ⚠ Route table {rt['RouteTableId']} still has dependencies and cannot be deleted")
-                        logger.warning(f"     It will be deleted when VPC is deleted")
-                    elif error_code != "InvalidRouteTableID.NotFound":
-                        logger.warning(f"  Could not delete route table {rt['RouteTableId']}: {e}")
+                if not any(assoc.get("Main") for assoc in rt["Associations"]):
+                    rt_id = rt["RouteTableId"]
+                    
+                    # First, disassociate from subnets
+                    for assoc in rt["Associations"]:
+                        if not assoc.get("Main") and "SubnetId" in assoc:
+                            try:
+                                ec2_client.disassociate_route_table(
+                                    AssociationId=assoc["RouteTableAssociationId"]
+                                )
+                                logger.info(f"    ✓ Disassociated route table {rt_id} from subnet {assoc['SubnetId']}")
+                            except ClientError as e:
+                                if e.response["Error"]["Code"] != "InvalidAssociationID.NotFound":
+                                    logger.debug(f"    Could not disassociate route table {rt_id}: {e}")
+                    
+                    # Wait a moment for disassociation
+                    time.sleep(2)
+                    
+                    # Then delete the route table
+                    try:
+                        ec2_client.delete_route_table(RouteTableId=rt_id)
+                        logger.info(f"  ✓ Deleted route table: {rt_id} (VPC: {vpc_id})")
+                    except ClientError as e:
+                        if e.response["Error"]["Code"] != "InvalidRouteTableID.NotFound":
+                            logger.debug(f"  Could not delete route table {rt_id}: {e}")
         
         logger.info("✓ Security groups processed")
     except Exception as e:
@@ -1136,6 +1249,7 @@ def main():
         delete_cloudfront_distributions()
         delete_alb_resources()
         delete_ec2_instances()
+        delete_nat_gateways()  # Add dedicated NAT gateway cleanup
         delete_secret_groups_and_route_tables()         
         delete_vpc_resources()
         delete_remaining_security_groups()  # Check for any remaining security groups after VPC deletion
