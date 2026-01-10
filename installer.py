@@ -2733,7 +2733,8 @@ def create_knowledge_base_with_opensearch(opensearch_info: Dict[str, str], knowl
         raise Exception("Failed to create vector index in OpenSearch collection")
     
     bedrock_agent_client = boto3.client("bedrock-agent", region_name=region)
-    parsing_model_arn = f"arn:aws:bedrock:{region}:{account_id}:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    # parsing_model_arn = f"arn:aws:bedrock:{region}:{account_id}:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    parsing_model_arn = f"arn:aws:bedrock:{region}:{account_id}:inference-profile/global.anthropic.claude-sonnet-4-20250514-v1:0"
     
     # Check if Knowledge Base already exists
     try:
@@ -2921,7 +2922,7 @@ def create_cloudfront_distribution(alb_info: Dict[str, str], s3_bucket_name: str
                 }
     except Exception as e:
         logger.debug(f"Error checking existing distributions: {e}")
-    
+
     # Check for existing Origin Access Identity or create new one
     logger.info("  Checking for existing Origin Access Identity for S3...")
     oai_id = None
