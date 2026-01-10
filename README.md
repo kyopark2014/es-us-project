@@ -225,6 +225,100 @@ async for output in app.astream(inputs, config, stream_mode="messages"):
       result += text_content
 ```
 
+## 배포하기
+
+### 배포 준비하기
+
+AWS console의 EC2로 접속하여 [Launch an instance]를 선택합니다. 별다른 설정없이 [Launch instance]를 선택합니다. 기존에 사용하던 key pair가 없다면 "Proceed without key pair"을 선택해도 문제 없습니다. 수분 후에 instance가 준비되면 [Connet] - [EC2 Instance Connect]를 선택하여 접속합니다. 
+
+<img width="806" height="639" alt="image" src="https://github.com/user-attachments/assets/e8a72859-4ac7-46af-b7ae-8546ea19e7a6" />
+
+아래 형태로 Credential을 입력합니다. 
+
+```text
+export AWS_ACCESS_KEY_ID= AKAADEMOCTZ7VQUQKLTW
+export AWS_SECRET_ACCESS_KEY=PCDemO13Hu99CwGmAkoJb+DemoXrmciLKVNOY5A/
+export AWS_DEFAULT_REGION=us-west-2
+```
+
+이후 아래와 같이 python, pip, git, boto3를 설치합니다.
+
+```text
+sudo yum install python3 python3-pip git -y
+pip install boto3
+```
+
+
+### EC2에서 실행하기
+
+아래와 같이 필요한 인프라를 python을 이용해 설치합니다. 이때 생성된 인프라의 정보를 application/config.json 파일도 생성하거나 업데이트합니다. Secret에 보관되는 API에 대한 Credential을 입력하여야 합니다. 없다면 엔터키를 눌러서 넘어갑니다.
+
+```text
+python installer.py
+```
+
+API 구현에 필요한 credential은 secret으로 관리합니다. 따라서 설치시 필요한 credential 입력이 필요한데 아래와 같은 방식을 활용하여 미리 credential을 준비합니다. 
+
+- 일반 인터넷 검색: [Tavily Search](https://app.tavily.com/sign-in)에 접속하여 가입 후 API Key를 발급합니다. 이것은 tvly-로 시작합니다.  
+- 날씨 검색: [openweathermap](https://home.openweathermap.org/api_keys)에 접속하여 API Key를 발급합니다.
+
+설치가 완료되면 CloudFront로 접속하여 동작을 확인합니다. 또한, 인프라가 더이상 필요없을 때에는 uninstaller.py를 이용해 제거합니다.
+
+```text
+python uninstaller.py
+```
+
+
+### EC2 업데이트
+
+Console에서 EC2의 Session Manager를 이용해 접속합니다. 아래 명령어로 업데이트 합니다.
+
+```text
+cd ~/mcp && sudo ./update.sh
+```
+
+### 실행 로그 확인
+
+Console에서 EC2의 Session Manager를 이용해 접속합니다. 
+
+먼저 현재 docker container ID를 확인합니다.
+
+```text
+sudo docker ps
+```
+
+이후 아래와 같이 로그를 확인합니다.
+
+```text
+sudo docker logs [container ID]
+```
+
+실제 실행시 결과는 아래와 같습니다.
+
+<img width="600" src="https://github.com/user-attachments/assets/2ca72116-0077-48a0-94be-3ab15334e4dd" />
+
+### Local에서 실행하기
+
+venv로 환경을 구성하면 편리합니다. 아래와 같이 환경을 설정합니다.
+
+```text
+python -m venv .venv
+source .venv/bin/activate
+```
+
+이후 다운로드 받은 github 폴더로 이동한 후에 아래와 같이 필요한 패키지를 추가로 설치 합니다.
+
+```text
+pip install -r requirements.txt
+```
+
+[deployment.md](./deployment.md)에 따라 AWS CDK로 Lambda, Knowledge base, Opensearch Serverless와 보안에 필요한 IAM Role을 설치합니다. 이후 아래와 같은 명령어로 streamlit을 실행합니다. 
+
+```text
+streamlit run application/app.py
+```
+
+
 
 
 ## 실행 하기
