@@ -268,11 +268,11 @@ API 구현에 필요한 credential은 secret으로 관리합니다. 따라서 �
 
 설치가 완료되면 아래와 같은 CloudFront로 접속하여 동작을 확인합니다. 
 
-<img width="553" height="81" alt="cloudfront_address" src="https://github.com/user-attachments/assets/7ab1a699-eefb-4b55-b214-23cbeeeb7249" />
+<img width="500" alt="cloudfront_address" src="https://github.com/user-attachments/assets/7ab1a699-eefb-4b55-b214-23cbeeeb7249" />
 
 접속한 후 아래와 같이 Agent를 선택한 후에 적절한 MCP tool을 선택하여 원하는 작업을 수행합니다.
 
-<img width="700" alt="image" src="https://github.com/user-attachments/assets/30ea945a-e896-438f-9f16-347f24c2f330" />
+<img width="750" alt="image" src="https://github.com/user-attachments/assets/30ea945a-e896-438f-9f16-347f24c2f330" />
 
 인프라가 더이상 필요없을 때에는 uninstaller.py를 이용해 제거합니다.
 
@@ -289,7 +289,7 @@ AWS console의 EC2로 접속하여 [Launch an instance](https://us-west-2.consol
 
 [connect]를 선택한 후에 Session Manager를 선택하여 접속합니다. 
 
-<img width="600" alt="image" src="https://github.com/user-attachments/assets/d1119cd6-08fb-4d3e-b1c2-77f2d7c1216a" />
+<img width="550" alt="image" src="https://github.com/user-attachments/assets/d1119cd6-08fb-4d3e-b1c2-77f2d7c1216a" />
 
 이후 아래와 같이 업데이트한 후에 다시 브라우저에서 접속합니다.
 
@@ -299,15 +299,15 @@ cd ~/es-us-project/ && sudo ./update.sh
 
 ### 실행 로그 확인
 
-Console에서 EC2의 Session Manager를 이용해 접속합니다. 
+[EC2 console](https://us-west-2.console.aws.amazon.com/ec2/home?region=us-west-2#Instances:)에서 "app-for-es-us"라는 이름을 가지는 instance id를 선택 한 후에, EC2의 Session Manager를 이용해 접속합니다. 
 
-먼저 현재 docker container ID를 확인합니다.
+먼저 아래와 같이 현재 docker container ID를 확인합니다.
 
 ```text
 sudo docker ps
 ```
 
-이후 아래와 같이 로그를 확인합니다.
+이후 아래와 같이 container ID를 이용해 로그를 확인합니다.
 
 ```text
 sudo docker logs [container ID]
@@ -332,56 +332,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-[deployment.md](./deployment.md)에 따라 AWS CDK로 Lambda, Knowledge base, Opensearch Serverless와 보안에 필요한 IAM Role을 설치합니다. 이후 아래와 같은 명령어로 streamlit을 실행합니다. 
+이후 아래와 같은 명령어로 streamlit을 실행합니다. 
 
 ```text
 streamlit run application/app.py
 ```
-
-
-
-
-## 실행 하기
-
-1) 소스를 다운로드 합니다.
-
-```text
-git clone https://github.com/kyopark2014/lgm-project
-```
-
-2) config.json을 생성합니다.
-
-```text
-cd lgm-project && cp application/config.json.sample application/config.json
-```
-
-3) [knowledge_base.md](https://github.com/kyopark2014/lgm-project/blob/main/knowledge_base.md)에 따라 Knowledge Base를 설치합니다. 설치가 완료되면 아래와 같이 Knowledge Base ID를 확인할 수 있습니다.
-
-
-<img width="687" height="276" alt="noname" src="https://github.com/user-attachments/assets/31112632-b4fd-45f6-b6ae-d74e889e9667" />
-
-
-4) AWS CLI를 통해 아래의 Knowledge Based ID와 AWS Credential을 설정합니다. 만약, AWS CLI를 사용하기 어려운 환경이라면(예 워크샵 계정) config.json 파일을 열어서 access_key_id, secret_access_key, session_token을 입력합니다.
-
-```java
-{
-    "projectName":"mcp",
-    "knowledge_base_id":"1CMBJP5NME",
-    "region":"us-west-2",
-    "aws": {
-        "access_key_id": "your_access_key_here",
-        "secret_access_key": "your_secret_key_here",
-        "session_token": "your_session_token_here"
-    }
- }
-```
-
-이제 아래와 같이 streamlit으로 된 application을 실행할 수 있습니다. 
-
-```text
-streamlit run application/app.py
-```
-
 
 
 ### 실행 예제
