@@ -289,36 +289,65 @@ def delete_single_vpc(vpc_id: str) -> bool:
     logger.info(f"  Deleting VPC: {vpc_id}")
     
     try:
-        # Delete VPC endpoints first - force deletion using AWS CLI if boto3 fails
+        # Delete VPC endpoints first with comprehensive waiting
         try:
             endpoints = ec2_client.describe_vpc_endpoints(
                 Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
             )
-            for endpoint in endpoints["VpcEndpoints"]:
-                if endpoint["State"] not in ["deleted", "deleting"]:
-                    endpoint_id = endpoint["VpcEndpointId"]
-                    try:
-                        # Try using AWS CLI as fallback
-                        import subprocess
-                        result = subprocess.run([
-                            "aws", "ec2", "delete-vpc-endpoints", 
-                            "--vpc-endpoint-ids", endpoint_id,
-                            "--region", region
-                        ], capture_output=True, text=True)
-                        
-                        if result.returncode == 0:
-                            logger.info(f"    ✓ Deleted VPC endpoint: {endpoint_id}")
-                        else:
-                            logger.warning(f"    Could not delete VPC endpoint {endpoint_id}: {result.stderr}")
-                    except Exception as endpoint_error:
-                        logger.warning(f"    Could not delete VPC endpoint {endpoint_id}: {endpoint_error}")
             
-            # Wait longer for VPC endpoints to be deleted
-            if endpoints["VpcEndpoints"]:
-                logger.info("    Waiting for VPC endpoints to be deleted...")
-                time.sleep(60)
+            endpoints_to_wait = []
+            for endpoint in endpoints["VpcEndpoints"]:
+                if endpoint["State"] not in ["deleted"]:
+                    endpoints_to_wait.append(endpoint)
+                    endpoint_id = endpoint["VpcEndpointId"]
+                    
+                    if endpoint["State"] not in ["deleting"]:
+                        try:
+                            ec2_client.delete_vpc_endpoints(VpcEndpointIds=[endpoint_id])
+                            logger.info(f"    ✓ Initiated deletion of VPC endpoint: {endpoint_id}")
+                        except ClientError as endpoint_error:
+                            if endpoint_error.response["Error"]["Code"] != "InvalidVpcEndpointId.NotFound":
+                                logger.warning(f"    Could not delete VPC endpoint {endpoint_id}: {endpoint_error}")
+                    else:
+                        logger.info(f"    VPC endpoint {endpoint_id} already deleting")
+            
+            # Wait for VPC endpoints to be fully deleted
+            if endpoints_to_wait:
+                logger.info(f"    Waiting for {len(endpoints_to_wait)} VPC endpoint(s) to be deleted...")
+                max_endpoint_wait = 300  # 5 minutes
+                endpoint_waited = 0
+                
+                while endpoint_waited < max_endpoint_wait:
+                    remaining_endpoints = []
+                    
+                    for endpoint in endpoints_to_wait:
+                        try:
+                            current_endpoints = ec2_client.describe_vpc_endpoints(
+                                VpcEndpointIds=[endpoint["VpcEndpointId"]]
+                            )
+                            if current_endpoints.get("VpcEndpoints"):
+                                current_endpoint = current_endpoints["VpcEndpoints"][0]
+                                if current_endpoint["State"] not in ["deleted"]:
+                                    remaining_endpoints.append(current_endpoint)
+                        except ClientError as e:
+                            if e.response["Error"]["Code"] == "InvalidVpcEndpointId.NotFound":
+                                logger.debug(f"      VPC endpoint {endpoint['VpcEndpointId']} confirmed deleted")
+                            else:
+                                logger.debug(f"      Error checking VPC endpoint: {e}")
+                    
+                    if not remaining_endpoints:
+                        logger.info(f"    ✓ All VPC endpoints deleted")
+                        break
+                    
+                    logger.info(f"      Still waiting for {len(remaining_endpoints)} VPC endpoint(s)... ({endpoint_waited}s/{max_endpoint_wait}s)")
+                    time.sleep(30)
+                    endpoint_waited += 30
+                
+                if remaining_endpoints:
+                    logger.warning(f"    ⚠ {len(remaining_endpoints)} VPC endpoint(s) still not deleted after {max_endpoint_wait} seconds")
+                    # Continue anyway, but this might cause issues
         except Exception as e:
-            logger.info(f"    Skipping VPC endpoint cleanup: {e}")
+            logger.info(f"    Error handling VPC endpoints: {e}")
         
         # Delete network interfaces
         try:
@@ -1178,6 +1207,127 @@ def delete_route_tables():
     except Exception as e:
         logger.debug(f"Error deleting route tables: {e}")
 
+def delete_vpc_endpoints_and_wait():
+    """Delete VPC endpoints and wait for completion."""
+    logger.info("Deleting VPC endpoints...")
+    
+    try:
+        # Find all VPC endpoints for project VPCs
+        vpc_name = f"vpc-for-{project_name}"
+        vpcs = ec2_client.describe_vpcs(
+            Filters=[{"Name": "tag:Name", "Values": [vpc_name]}]
+        )
+        
+        all_endpoints = []
+        for vpc in vpcs.get("Vpcs", []):
+            vpc_id = vpc["VpcId"]
+            endpoints = ec2_client.describe_vpc_endpoints(
+                Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+            )
+            
+            for endpoint in endpoints["VpcEndpoints"]:
+                if endpoint["State"] not in ["deleted", "deleting"]:
+                    all_endpoints.append(endpoint)
+                    logger.info(f"  Found VPC endpoint to delete: {endpoint['VpcEndpointId']} ({endpoint.get('ServiceName', 'Unknown')})")
+                elif endpoint["State"] == "deleting":
+                    all_endpoints.append(endpoint)
+                    logger.info(f"  Found VPC endpoint already deleting: {endpoint['VpcEndpointId']} ({endpoint.get('ServiceName', 'Unknown')})")
+        
+        # Delete endpoints that are not already deleting
+        for endpoint in all_endpoints:
+            if endpoint["State"] not in ["deleted", "deleting"]:
+                try:
+                    ec2_client.delete_vpc_endpoints(VpcEndpointIds=[endpoint["VpcEndpointId"]])
+                    logger.info(f"  ✓ Initiated deletion of VPC endpoint: {endpoint['VpcEndpointId']}")
+                except ClientError as e:
+                    if e.response["Error"]["Code"] != "InvalidVpcEndpointId.NotFound":
+                        logger.warning(f"  Could not delete VPC endpoint {endpoint['VpcEndpointId']}: {e}")
+        
+        # Wait for all endpoints to be deleted
+        if all_endpoints:
+            logger.info(f"  Waiting for {len(all_endpoints)} VPC endpoint(s) to be deleted...")
+            max_wait = 300  # 5 minutes
+            waited = 0
+            
+            while waited < max_wait:
+                remaining_endpoints = []
+                
+                for endpoint in all_endpoints:
+                    try:
+                        current_endpoints = ec2_client.describe_vpc_endpoints(
+                            VpcEndpointIds=[endpoint["VpcEndpointId"]]
+                        )
+                        if current_endpoints.get("VpcEndpoints"):
+                            current_endpoint = current_endpoints["VpcEndpoints"][0]
+                            if current_endpoint["State"] not in ["deleted"]:
+                                remaining_endpoints.append(current_endpoint)
+                                logger.debug(f"    VPC endpoint {endpoint['VpcEndpointId']} still in state: {current_endpoint['State']}")
+                    except ClientError as e:
+                        if e.response["Error"]["Code"] == "InvalidVpcEndpointId.NotFound":
+                            logger.debug(f"    VPC endpoint {endpoint['VpcEndpointId']} confirmed deleted")
+                        else:
+                            logger.debug(f"    Error checking VPC endpoint {endpoint['VpcEndpointId']}: {e}")
+                
+                if not remaining_endpoints:
+                    logger.info("  ✓ All VPC endpoints deleted")
+                    break
+                
+                logger.info(f"    Still waiting for {len(remaining_endpoints)} VPC endpoint(s)... ({waited}s/{max_wait}s)")
+                time.sleep(30)
+                waited += 30
+            
+            if remaining_endpoints:
+                logger.warning(f"  ⚠ {len(remaining_endpoints)} VPC endpoint(s) still not deleted after {max_wait} seconds")
+                for endpoint in remaining_endpoints:
+                    logger.warning(f"    - {endpoint['VpcEndpointId']} (State: {endpoint['State']})")
+        
+        logger.info("✓ VPC endpoints processed")
+    except Exception as e:
+        logger.error(f"Error deleting VPC endpoints: {e}")
+
+def wait_for_vpc_endpoint_deletion():
+    """Wait for any remaining VPC endpoints to be deleted."""
+    logger.info("Checking for remaining VPC endpoints...")
+    
+    try:
+        # Check for the specific VPC endpoint that was deleting
+        endpoint_id = "vpce-0463dca454a0900e4"
+        
+        max_wait = 300  # 5 minutes
+        waited = 0
+        
+        while waited < max_wait:
+            try:
+                endpoints = ec2_client.describe_vpc_endpoints(VpcEndpointIds=[endpoint_id])
+                if endpoints.get("VpcEndpoints"):
+                    endpoint = endpoints["VpcEndpoints"][0]
+                    if endpoint["State"] == "deleted":
+                        logger.info(f"  ✓ VPC endpoint {endpoint_id} is now deleted")
+                        break
+                    else:
+                        logger.info(f"  VPC endpoint {endpoint_id} still in state: {endpoint['State']} (waiting {waited}s/{max_wait}s)")
+                        time.sleep(30)
+                        waited += 30
+                else:
+                    logger.info(f"  ✓ VPC endpoint {endpoint_id} is deleted")
+                    break
+            except ClientError as e:
+                if e.response["Error"]["Code"] == "InvalidVpcEndpointId.NotFound":
+                    logger.info(f"  ✓ VPC endpoint {endpoint_id} confirmed deleted")
+                    break
+                else:
+                    logger.warning(f"  Error checking VPC endpoint: {e}")
+                    break
+        
+        if waited >= max_wait:
+            logger.warning(f"  ⚠ VPC endpoint {endpoint_id} still not deleted after {max_wait} seconds")
+            return False
+        
+        return True
+    except Exception as e:
+        logger.debug(f"Error waiting for VPC endpoint deletion: {e}")
+        return False
+
 def force_delete_specific_security_group():
     """Force delete remaining security groups that are blocking VPC deletion."""
     logger.info("Checking for remaining security groups blocking VPC deletion...")
@@ -1489,18 +1639,15 @@ def main():
         delete_alb_resources()
         delete_ec2_instances()
         delete_nat_gateways()
+        
+        # Wait for VPC endpoints to be deleted first
+        wait_for_vpc_endpoint_deletion()
+        delete_vpc_endpoints_and_wait()
+        
         delete_security_groups()
         delete_route_tables()
         
-        # Force delete specific problematic resources
-        force_delete_specific_security_group()
-        
         failed_vpcs = delete_vpc_resources()
-        
-        # If VPC deletion failed, try force delete
-        if failed_vpcs:
-            logger.info("Attempting force deletion of specific VPC...")
-            force_delete_specific_vpc()
         
         delete_opensearch_collection()
         delete_knowledge_bases()
