@@ -289,7 +289,7 @@ AWS console의 EC2로 접속하여 [Launch an instance](https://us-west-2.consol
 
 [connect]를 선택한 후에 Session Manager를 선택하여 접속합니다. 
 
-<img width="550" alt="image" src="https://github.com/user-attachments/assets/d1119cd6-08fb-4d3e-b1c2-77f2d7c1216a" />
+<img width="700" alt="image" src="https://github.com/user-attachments/assets/d1119cd6-08fb-4d3e-b1c2-77f2d7c1216a" />
 
 이후 아래와 같이 업데이트한 후에 다시 브라우저에서 접속합니다.
 
