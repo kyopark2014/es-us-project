@@ -181,6 +181,30 @@ def create_iam_role(role_name: str, assume_role_policy: Dict, managed_policies: 
             response = iam_client.get_role(RoleName=role_name)
             role_arn = response["Role"]["Arn"]
             
+            # Update trust policy for existing role
+            try:
+                logger.info(f"Updating trust policy for existing role: {role_name}")
+                iam_client.update_assume_role_policy(
+                    RoleName=role_name,
+                    PolicyDocument=json.dumps(assume_role_policy)
+                )
+                logger.info(f"✓ Updated trust policy for role: {role_name}")
+                
+                # Verify trust policy was updated correctly
+                updated_role = iam_client.get_role(RoleName=role_name)
+                policy_doc = updated_role["Role"]["AssumeRolePolicyDocument"]
+                # Handle both string and dict formats (boto3 may return either)
+                if isinstance(policy_doc, str):
+                    updated_policy = json.loads(policy_doc)
+                else:
+                    updated_policy = policy_doc
+                logger.debug(f"Verified trust policy: {json.dumps(updated_policy, indent=2)}")
+            except ClientError as trust_policy_error:
+                logger.error(f"✗ Failed to update trust policy for role {role_name}: {trust_policy_error}")
+                logger.error(f"  Error Code: {trust_policy_error.response.get('Error', {}).get('Code')}")
+                logger.error(f"  Error Message: {trust_policy_error.response.get('Error', {}).get('Message')}")
+                raise
+            
             # Update managed policies if provided
             if managed_policies:
                 logger.debug(f"Updating managed policies for existing role")
@@ -2733,9 +2757,8 @@ def create_knowledge_base_with_opensearch(opensearch_info: Dict[str, str], knowl
         raise Exception("Failed to create vector index in OpenSearch collection")
     
     bedrock_agent_client = boto3.client("bedrock-agent", region_name=region)
-    # parsing_model_arn = f"arn:aws:bedrock:{region}:{account_id}:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0"
-    parsing_model_arn = f"arn:aws:bedrock:{region}:{account_id}:inference-profile/global.anthropic.claude-sonnet-4-20250514-v1:0"
-    
+    parsing_model_arn = f"arn:aws:bedrock:{region}:{account_id}:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0"
+
     # Check if Knowledge Base already exists
     try:
         logger.info("  Checking if Knowledge Base already exists...")
@@ -2761,6 +2784,38 @@ def create_knowledge_base_with_opensearch(opensearch_info: Dict[str, str], knowl
         logger.info("  Knowledge Base does not exist. Creating new one...")
     except Exception as e:
         logger.debug(f"Error checking existing Knowledge Base: {e}")
+    
+    # Verify Knowledge Base role before creating
+    logger.info("  Verifying Knowledge Base role configuration...")
+    try:
+        role_response = iam_client.get_role(RoleName=f"role-knowledge-base-for-{project_name}-{region}")
+        policy_doc = role_response["Role"]["AssumeRolePolicyDocument"]
+        # Handle both string and dict formats (boto3 may return either)
+        if isinstance(policy_doc, str):
+            trust_policy = json.loads(policy_doc)
+        else:
+            trust_policy = policy_doc
+        logger.debug(f"  Role trust policy: {json.dumps(trust_policy, indent=2)}")
+        
+        # Verify trust policy allows bedrock.amazonaws.com
+        statements = trust_policy.get("Statement", [])
+        bedrock_allowed = False
+        for statement in statements:
+            if statement.get("Effect") == "Allow":
+                principal = statement.get("Principal", {})
+                if principal.get("Service") == "bedrock.amazonaws.com":
+                    bedrock_allowed = True
+                    break
+        
+        if not bedrock_allowed:
+            logger.error("  ✗ Knowledge Base role trust policy does not allow bedrock.amazonaws.com")
+            logger.error("  Please update the role trust policy manually or delete and recreate the role")
+            raise Exception("Knowledge Base role trust policy is incorrect")
+        
+        logger.info("  ✓ Knowledge Base role trust policy is correct")
+    except ClientError as role_error:
+        logger.error(f"  ✗ Failed to verify Knowledge Base role: {role_error}")
+        raise
     
     # Create Knowledge Base
     logger.debug(f"Creating Knowledge Base with OpenSearch collection: {opensearch_info['arn']}")
