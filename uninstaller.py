@@ -7,8 +7,6 @@ This script deletes all AWS infrastructure resources created by installer.py.
 import boto3
 import time
 import logging
-from datetime import datetime
-from typing import Dict, List, Optional
 from botocore.exceptions import ClientError
 
 # Configuration
@@ -185,6 +183,7 @@ def delete_nat_gateways():
             return
         
         # Delete each NAT gateway
+        deleted_nat_gw_ids = []
         for nat_gw in project_nat_gws:
             nat_gw_id = nat_gw["NatGatewayId"]
             vpc_id = nat_gw["VpcId"]
@@ -223,13 +222,29 @@ def delete_nat_gateways():
             try:
                 ec2_client.delete_nat_gateway(NatGatewayId=nat_gw_id)
                 logger.info(f"    ✓ Deleted NAT Gateway: {nat_gw_id}")
+                deleted_nat_gw_ids.append(nat_gw_id)
             except ClientError as nat_error:
                 logger.warning(f"    Could not delete NAT gateway {nat_gw_id}: {nat_error}")
         
-        # Wait for NAT gateways to be deleted
-        if project_nat_gws:
-            logger.info("  Waiting for NAT gateways to be deleted...")
-            time.sleep(60)
+        # Wait for NAT gateways to be deleted only if there are any being deleted
+        if deleted_nat_gw_ids:
+            # Check if any NAT gateways are still in deleting state
+            try:
+                nat_gws_status = ec2_client.describe_nat_gateways(NatGatewayIds=deleted_nat_gw_ids)
+                deleting_nat_gws = [
+                    ngw for ngw in nat_gws_status.get("NatGateways", [])
+                    if ngw["State"] == "deleting"
+                ]
+                
+                if deleting_nat_gws:
+                    logger.info(f"  Waiting for {len(deleting_nat_gws)} NAT gateway(s) to be deleted...")
+                    time.sleep(60)
+            except ClientError as e:
+                # If NAT gateways are already deleted, describe_nat_gateways will fail
+                if e.response["Error"]["Code"] == "InvalidNatGatewayID.NotFound":
+                    logger.debug("  NAT gateways already deleted")
+                else:
+                    logger.debug(f"  Could not check NAT gateway status: {e}")
         
         logger.info("✓ NAT gateways deleted")
     except Exception as e:
@@ -265,8 +280,12 @@ def delete_ec2_instances():
     except Exception as e:
         logger.error(f"Error deleting EC2 instances: {e}")
 
-def delete_single_vpc(vpc_id: str):
-    """Delete a single VPC and all its related resources."""
+def delete_single_vpc(vpc_id: str) -> bool:
+    """Delete a single VPC and all its related resources.
+    
+    Returns:
+        bool: True if VPC was successfully deleted, False otherwise.
+    """
     logger.info(f"  Deleting VPC: {vpc_id}")
     
     try:
@@ -428,14 +447,14 @@ def delete_single_vpc(vpc_id: str):
         
         # Delete VPC with retry and complete cleanup
         vpc_deleted = False
-        for attempt in range(3):
+        for attempt in range(5):  # Increased attempts
             try:
                 ec2_client.delete_vpc(VpcId=vpc_id)
                 logger.info(f"  ✓ VPC deletion initiated: {vpc_id}")
                 
                 # Wait and verify VPC deletion
                 logger.info(f"    Waiting for VPC {vpc_id} to be deleted...")
-                max_wait = 120  # Wait up to 2 minutes
+                max_wait = 180  # Increased wait time to 3 minutes
                 waited = 0
                 while waited < max_wait:
                     try:
@@ -444,8 +463,8 @@ def delete_single_vpc(vpc_id: str):
                             vpc_deleted = True
                             logger.info(f"  ✓ VPC {vpc_id} successfully deleted")
                             break
-                        time.sleep(5)
-                        waited += 5
+                        time.sleep(10)  # Increased check interval
+                        waited += 10
                     except ClientError as check_error:
                         if check_error.response["Error"]["Code"] == "InvalidVpcID.NotFound":
                             vpc_deleted = True
@@ -460,11 +479,23 @@ def delete_single_vpc(vpc_id: str):
                     
             except ClientError as e:
                 if e.response["Error"]["Code"] == "DependencyViolation":
-                    if attempt < 2:
-                        logger.info(f"    VPC has dependencies, cleaning up remaining resources (attempt {attempt + 1}/3)...")
+                    if attempt < 4:
+                        logger.info(f"    VPC has dependencies, performing thorough cleanup (attempt {attempt + 1}/5)...")
                         
-                        # Additional cleanup for remaining dependencies
+                        # More thorough dependency cleanup
                         try:
+                            # Force delete any remaining network interfaces
+                            enis = ec2_client.describe_network_interfaces(
+                                Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+                            )
+                            for eni in enis["NetworkInterfaces"]:
+                                if eni["Status"] == "available":
+                                    try:
+                                        ec2_client.delete_network_interface(NetworkInterfaceId=eni["NetworkInterfaceId"])
+                                        logger.info(f"    ✓ Force deleted network interface: {eni['NetworkInterfaceId']}")
+                                    except:
+                                        pass
+                            
                             # Delete any remaining network ACLs
                             nacls = ec2_client.describe_network_acls(
                                 Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
@@ -477,20 +508,45 @@ def delete_single_vpc(vpc_id: str):
                                     except:
                                         pass
                             
-                            # Delete any remaining DHCP options
-                            dhcp_options = ec2_client.describe_dhcp_options()
-                            for dhcp in dhcp_options["DhcpOptions"]:
-                                try:
-                                    ec2_client.disassociate_dhcp_options(VpcId=vpc_id)
-                                    break
-                                except:
-                                    pass
-                        except:
-                            pass
+                            # Check for VPC peering connections
+                            try:
+                                peering_connections = ec2_client.describe_vpc_peering_connections(
+                                    Filters=[
+                                        {"Name": "requester-vpc-info.vpc-id", "Values": [vpc_id]},
+                                        {"Name": "accepter-vpc-info.vpc-id", "Values": [vpc_id]}
+                                    ]
+                                )
+                                for pc in peering_connections["VpcPeeringConnections"]:
+                                    if pc["Status"]["Code"] not in ["deleted", "deleting"]:
+                                        try:
+                                            ec2_client.delete_vpc_peering_connection(
+                                                VpcPeeringConnectionId=pc["VpcPeeringConnectionId"]
+                                            )
+                                            logger.info(f"    ✓ Deleted VPC peering connection: {pc['VpcPeeringConnectionId']}")
+                                        except:
+                                            pass
+                            except:
+                                pass
+                            
+                            # Disassociate DHCP options
+                            try:
+                                ec2_client.associate_dhcp_options(
+                                    DhcpOptionsId="default",
+                                    VpcId=vpc_id
+                                )
+                                logger.info(f"    ✓ Reset DHCP options to default for VPC: {vpc_id}")
+                            except:
+                                pass
+                                
+                        except Exception as cleanup_error:
+                            logger.debug(f"    Error during thorough cleanup: {cleanup_error}")
                         
-                        time.sleep(30)
+                        # Wait longer between attempts
+                        wait_time = 60 + (attempt * 30)  # Progressive wait: 60s, 90s, 120s, 150s
+                        logger.info(f"    Waiting {wait_time} seconds before retry...")
+                        time.sleep(wait_time)
                     else:
-                        logger.error(f"  ✗ Failed to delete VPC {vpc_id} after 3 attempts: {e}")
+                        logger.error(f"  ✗ Failed to delete VPC {vpc_id} after 5 attempts: {e}")
                         break
                 elif e.response["Error"]["Code"] == "InvalidVpcID.NotFound":
                     # VPC already deleted
@@ -507,18 +563,30 @@ def delete_single_vpc(vpc_id: str):
             try:
                 vpcs = ec2_client.describe_vpcs(VpcIds=[vpc_id])
                 if vpcs.get("Vpcs"):
-                    logger.error(f"  ✗ VPC {vpc_id} still exists. Remaining resources may need manual cleanup.")
+                    logger.error(f"  ✗ VPC {vpc_id} still exists. Remaining resources will be retried after CloudFront cleanup.")
+                    return False
             except ClientError as final_check:
                 if final_check.response["Error"]["Code"] == "InvalidVpcID.NotFound":
                     logger.info(f"  ✓ VPC {vpc_id} was actually deleted (final check)")
+                    return True
                 else:
                     logger.error(f"  ✗ Could not verify VPC deletion status: {final_check}")
+                    return False
+        
+        return vpc_deleted
     except Exception as e:
         logger.error(f"Error deleting VPC {vpc_id}: {e}")
+        return False
 
 def delete_vpc_resources():
-    """Delete VPC and related resources."""
+    """Delete VPC and related resources.
+    
+    Returns:
+        list: List of VPC IDs that failed to delete.
+    """
     logger.info("[4/9] Deleting VPC resources")
+    
+    failed_vpcs = []
     
     try:
         # Find all VPCs that might be related to the project
@@ -625,7 +693,8 @@ def delete_vpc_resources():
         
         # Delete each VPC
         for vpc_id in vpcs_to_delete:
-            delete_single_vpc(vpc_id)
+            if not delete_single_vpc(vpc_id):
+                failed_vpcs.append(vpc_id)
         
         # Final verification: Check if any VPCs still exist
         logger.info("  Verifying VPC deletion...")
@@ -663,10 +732,16 @@ def delete_vpc_resources():
         if remaining_vpcs:
             logger.error(f"  ✗ {len(remaining_vpcs)} VPC(s) still exist: {remaining_vpcs}")
             logger.error("  Please check AWS console and delete manually if needed")
+            # Add remaining VPCs to failed list
+            for vpc_id in remaining_vpcs:
+                if vpc_id not in failed_vpcs:
+                    failed_vpcs.append(vpc_id)
         else:
             logger.info("✓ All VPC resources deleted")
     except Exception as e:
         logger.error(f"Error deleting VPC resources: {e}")
+    
+    return failed_vpcs
 
 def delete_opensearch_collection():
     """Delete OpenSearch Serverless collection and policies."""
@@ -1233,6 +1308,38 @@ def delete_s3_buckets():
     
     logger.info("✓ S3 buckets deleted")
 
+def retry_vpc_deletion():
+    """Retry VPC deletion after CloudFront distributions are fully deleted."""
+    logger.info("[9/9] Retrying VPC deletion after CloudFront cleanup")
+    
+    try:
+        # Find VPCs that still exist and match our project
+        vpc_name = f"vpc-for-{project_name}"
+        
+        # Check by tag name
+        vpcs_by_tag = ec2_client.describe_vpcs(
+            Filters=[{"Name": "tag:Name", "Values": [vpc_name]}]
+        )
+        
+        vpcs_to_retry = []
+        for vpc in vpcs_by_tag.get("Vpcs", []):
+            vpc_id = vpc["VpcId"]
+            vpcs_to_retry.append(vpc_id)
+            logger.info(f"  Found VPC to retry deletion: {vpc_id}")
+        
+        if not vpcs_to_retry:
+            logger.info("  No VPCs found to retry deletion")
+            return
+        
+        # Retry deletion for each VPC
+        for vpc_id in vpcs_to_retry:
+            logger.info(f"  Retrying deletion for VPC: {vpc_id}")
+            delete_single_vpc(vpc_id)
+        
+        logger.info("✓ VPC deletion retry completed")
+    except Exception as e:
+        logger.error(f"Error during VPC deletion retry: {e}")
+
 def main():
     """Main function to delete all infrastructure."""
     logger.info("="*60)
@@ -1251,7 +1358,7 @@ def main():
         delete_ec2_instances()
         delete_nat_gateways()  # Add dedicated NAT gateway cleanup
         delete_secret_groups_and_route_tables()         
-        delete_vpc_resources()
+        failed_vpcs = delete_vpc_resources()
         delete_remaining_security_groups()  # Check for any remaining security groups after VPC deletion
         delete_opensearch_collection()
         delete_knowledge_bases()
@@ -1259,6 +1366,12 @@ def main():
         delete_iam_roles()
         delete_s3_buckets()
         delete_disabled_cloudfront_distributions()
+        
+        # Retry VPC deletion only if there were failures
+        if failed_vpcs:
+            logger.info(f"  VPC deletion failed for {len(failed_vpcs)} VPC(s): {failed_vpcs}")
+            logger.info("  Retrying VPC deletion after CloudFront cleanup...")
+            retry_vpc_deletion()
         
         elapsed_time = time.time() - start_time
         logger.info("")
