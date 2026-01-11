@@ -283,10 +283,18 @@ python uninstaller.py
 
 ### EC2 업데이트
 
-Console에서 EC2의 Session Manager를 이용해 접속합니다. 아래 명령어로 업데이트 합니다.
+AWS console의 EC2로 접속하여 [Launch an instance](https://us-west-2.console.aws.amazon.com/ec2/home?region=us-west-2#Instances:)를 선택하여 아래와 같이 아래와 같이 "app-for-es-us"라는 이름을 가지는 instance id를 선택합니다.
+
+<img width="977" height="171" alt="image" src="https://github.com/user-attachments/assets/7d6d756a-03ba-4422-9413-9e4b6d3bc1da" />
+
+[connect]를 선택한 후에 Session Manager를 선택하여 접속합니다. 
+
+<img width="600" alt="image" src="https://github.com/user-attachments/assets/d1119cd6-08fb-4d3e-b1c2-77f2d7c1216a" />
+
+이후 아래와 같이 업데이트한 후에 다시 브라우저에서 접속합니다.
 
 ```text
-cd ~/mcp && sudo ./update.sh
+cd ~/es-us-project/ && sudo ./update.sh
 ```
 
 ### 실행 로그 확인
