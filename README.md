@@ -291,7 +291,7 @@ AWS console의 EC2로 접속하여 [Launch an instance](https://us-west-2.consol
 
 <img width="700" alt="image" src="https://github.com/user-attachments/assets/d1119cd6-08fb-4d3e-b1c2-77f2d7c1216a" />
 
-이후 아래와 같이 업데이트한 후에 다시 브라우저에서 접속합니다.
+이후 아래와 같이 업데이트한 후에 다시 브라우저에서 확인합니다.
 
 ```text
 cd ~/es-us-project/ && sudo ./update.sh
