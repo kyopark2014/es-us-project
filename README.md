@@ -281,7 +281,7 @@ python uninstaller.py
 ```
 
 
-### 로그 분석하기
+### 배포된 Application 업데이트 하기
 
 AWS console의 EC2로 접속하여 [Launch an instance](https://us-west-2.console.aws.amazon.com/ec2/home?region=us-west-2#Instances:)를 선택하여 아래와 같이 아래와 같이 "app-for-es-us"라는 이름을 가지는 instance id를 선택합니다.
 
