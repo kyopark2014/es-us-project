@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 
 # Configuration
 project_name = "es-us"
-region = "us-west-2"
+region = "us-west-2"  
 
 sts_client = boto3.client("sts", region_name=region)
 account_id = sts_client.get_caller_identity()["Account"]
@@ -390,17 +390,56 @@ def delete_single_vpc(vpc_id: str) -> bool:
                 except:
                     pass
         
-        # Delete security groups
+        # Delete security groups with enhanced cleanup
         sgs = ec2_client.describe_security_groups(
             Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
         )
+        
+        # First, clean up all security group rules
         for sg in sgs["SecurityGroups"]:
             if sg["GroupName"] != "default":
                 try:
-                    ec2_client.delete_security_group(GroupId=sg["GroupId"])
-                    logger.info(f"    ✓ Deleted security group: {sg['GroupId']}")
+                    # Remove all inbound rules
+                    if sg.get("IpPermissions"):
+                        ec2_client.revoke_security_group_ingress(
+                            GroupId=sg["GroupId"],
+                            IpPermissions=sg["IpPermissions"]
+                        )
+                    
+                    # Remove all outbound rules (except default)
+                    if sg.get("IpPermissionsEgress"):
+                        egress_rules = [r for r in sg["IpPermissionsEgress"] 
+                                       if not (r.get("IpProtocol") == "-1" and 
+                                              len(r.get("IpRanges", [])) == 1 and
+                                              r["IpRanges"][0].get("CidrIp") == "0.0.0.0/0")]
+                        if egress_rules:
+                            ec2_client.revoke_security_group_egress(
+                                GroupId=sg["GroupId"],
+                                IpPermissions=egress_rules
+                            )
                 except:
                     pass
+        
+        time.sleep(10)  # Wait for rule cleanup
+        
+        # Then delete security groups with retry
+        for attempt in range(3):
+            remaining_sgs = []
+            for sg in sgs["SecurityGroups"]:
+                if sg["GroupName"] != "default":
+                    try:
+                        ec2_client.delete_security_group(GroupId=sg["GroupId"])
+                        logger.info(f"    ✓ Deleted security group: {sg['GroupId']}")
+                    except ClientError as sg_error:
+                        if sg_error.response["Error"]["Code"] not in ["InvalidGroup.NotFound"]:
+                            remaining_sgs.append(sg)
+            
+            if not remaining_sgs:
+                break
+            elif attempt < 2:
+                logger.info(f"    Retrying {len(remaining_sgs)} security groups in 15 seconds...")
+                time.sleep(15)
+                sgs["SecurityGroups"] = remaining_sgs
         
         # Delete subnets with retry
         subnets = ec2_client.describe_subnets(
@@ -479,7 +518,7 @@ def delete_single_vpc(vpc_id: str) -> bool:
                     
             except ClientError as e:
                 if e.response["Error"]["Code"] == "DependencyViolation":
-                    if attempt < 4:
+                    if attempt < 3:
                         logger.info(f"    VPC has dependencies, performing thorough cleanup (attempt {attempt + 1}/5)...")
                         
                         # More thorough dependency cleanup
@@ -908,8 +947,8 @@ def delete_secrets():
     
     logger.info("✓ Secrets deleted")
 
-def delete_secret_groups_and_route_tables():
-    """Delete security groups (alb-sg-for-es-us와 같은 security group 삭제)."""
+def delete_security_groups():
+    """Delete security groups with proper dependency handling."""
     logger.info("[4/9] Deleting security groups")
     
     try:
@@ -934,167 +973,188 @@ def delete_secret_groups_and_route_tables():
         
         logger.info(f"  Found {len(sgs_to_delete)} security group(s) to delete")
         
-        # First pass: Remove all inbound and outbound rules from security groups
-        # This is necessary because security groups can reference each other
-        for sg_info in sgs_to_delete:
-            try:
-                # Get current security group rules
-                sg_detail = ec2_client.describe_security_groups(GroupIds=[sg_info["GroupId"]])
-                if sg_detail.get("SecurityGroups"):
-                    sg = sg_detail["SecurityGroups"][0]
+        # Clean up security group rules and dependencies
+        cleanup_security_group_dependencies(sgs_to_delete)
+        
+        # Try to delete security groups with retry logic
+        delete_security_groups_with_retry(sgs_to_delete)
+        
+        logger.info("✓ Security groups processed")
+    except Exception as e:
+        logger.error(f"Error deleting security groups: {e}")
+
+def cleanup_security_group_dependencies(sgs_to_delete):
+    """Clean up security group rules and dependencies."""
+    sg_ids_to_delete = {sg["GroupId"] for sg in sgs_to_delete}
+    
+    # First pass: Remove all rules from security groups to be deleted
+    for sg_info in sgs_to_delete:
+        try:
+            sg_detail = ec2_client.describe_security_groups(GroupIds=[sg_info["GroupId"]])
+            if sg_detail.get("SecurityGroups"):
+                sg = sg_detail["SecurityGroups"][0]
+                
+                # Remove all inbound rules
+                if sg.get("IpPermissions"):
+                    try:
+                        ec2_client.revoke_security_group_ingress(
+                            GroupId=sg_info["GroupId"],
+                            IpPermissions=sg["IpPermissions"]
+                        )
+                        logger.info(f"  ✓ Removed inbound rules from: {sg_info['GroupName']}")
+                    except ClientError as e:
+                        if e.response.get("Error", {}).get("Code") != "InvalidPermission.NotFound":
+                            logger.debug(f"    Could not remove inbound rules: {e}")
+                
+                # Remove all outbound rules (except default allow-all)
+                if sg.get("IpPermissionsEgress"):
+                    egress_rules = []
+                    for rule in sg["IpPermissionsEgress"]:
+                        # Skip default allow-all egress rule
+                        if not (rule.get("IpProtocol") == "-1" and 
+                               len(rule.get("IpRanges", [])) == 1 and
+                               rule["IpRanges"][0].get("CidrIp") == "0.0.0.0/0"):
+                            egress_rules.append(rule)
                     
-                    # Remove all inbound rules
-                    if sg.get("IpPermissions"):
+                    if egress_rules:
                         try:
-                            ec2_client.revoke_security_group_ingress(
+                            ec2_client.revoke_security_group_egress(
                                 GroupId=sg_info["GroupId"],
-                                IpPermissions=sg["IpPermissions"]
+                                IpPermissions=egress_rules
                             )
-                            logger.info(f"  ✓ Removed inbound rules from: {sg_info['GroupName']}")
+                            logger.info(f"  ✓ Removed outbound rules from: {sg_info['GroupName']}")
                         except ClientError as e:
                             if e.response.get("Error", {}).get("Code") != "InvalidPermission.NotFound":
-                                logger.debug(f"    Could not remove inbound rules: {e}")
-                    
-                    # Remove all outbound rules (except default allow-all)
-                    if sg.get("IpPermissionsEgress"):
-                        # Filter out default allow-all egress rule
-                        egress_rules = []
-                        for rule in sg["IpPermissionsEgress"]:
-                            # Skip default allow-all egress rule
-                            if not (rule.get("IpProtocol") == "-1" and 
-                                   len(rule.get("IpRanges", [])) == 1 and
-                                   rule["IpRanges"][0].get("CidrIp") == "0.0.0.0/0"):
-                                egress_rules.append(rule)
-                        
-                        if egress_rules:
-                            try:
-                                ec2_client.revoke_security_group_egress(
-                                    GroupId=sg_info["GroupId"],
-                                    IpPermissions=egress_rules
-                                )
-                                logger.info(f"  ✓ Removed outbound rules from: {sg_info['GroupName']}")
-                            except ClientError as e:
-                                if e.response.get("Error", {}).get("Code") != "InvalidPermission.NotFound":
-                                    logger.debug(f"    Could not remove outbound rules: {e}")
+                                logger.debug(f"    Could not remove outbound rules: {e}")
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") != "InvalidGroup.NotFound":
+                logger.debug(f"    Could not process security group {sg_info['GroupName']}: {e}")
+    
+    time.sleep(5)
+    
+    # Second pass: Remove references from other security groups
+    all_sgs_again = ec2_client.describe_security_groups()
+    for sg in all_sgs_again.get("SecurityGroups", []):
+        if sg["GroupId"] in sg_ids_to_delete:
+            continue
+        
+        # Check and remove inbound rules that reference our security groups
+        inbound_to_remove = []
+        if sg.get("IpPermissions"):
+            for rule in sg["IpPermissions"]:
+                for user_id_group_pair in rule.get("UserIdGroupPairs", []):
+                    if user_id_group_pair.get("GroupId") in sg_ids_to_delete:
+                        inbound_to_remove.append(rule)
+                        break
+        
+        if inbound_to_remove:
+            try:
+                ec2_client.revoke_security_group_ingress(
+                    GroupId=sg["GroupId"],
+                    IpPermissions=inbound_to_remove
+                )
+                logger.info(f"  ✓ Removed references from security group: {sg.get('GroupName', sg['GroupId'])}")
             except ClientError as e:
-                if e.response.get("Error", {}).get("Code") != "InvalidGroup.NotFound":
-                    logger.debug(f"    Could not process security group {sg_info['GroupName']}: {e}")
+                logger.debug(f"    Could not remove inbound references: {e}")
         
-        # Wait a bit for rules to be removed
-        time.sleep(5)
+        # Check and remove outbound rules that reference our security groups
+        outbound_to_remove = []
+        if sg.get("IpPermissionsEgress"):
+            for rule in sg["IpPermissionsEgress"]:
+                for user_id_group_pair in rule.get("UserIdGroupPairs", []):
+                    if user_id_group_pair.get("GroupId") in sg_ids_to_delete:
+                        outbound_to_remove.append(rule)
+                        break
         
-        # Second pass: Remove references from other security groups
-        # Check all security groups and remove rules that reference our security groups
-        all_sgs_again = ec2_client.describe_security_groups()
-        sg_ids_to_delete = {sg["GroupId"] for sg in sgs_to_delete}
+        if outbound_to_remove:
+            try:
+                ec2_client.revoke_security_group_egress(
+                    GroupId=sg["GroupId"],
+                    IpPermissions=outbound_to_remove
+                )
+                logger.info(f"  ✓ Removed outbound references from security group: {sg.get('GroupName', sg['GroupId'])}")
+            except ClientError as e:
+                logger.debug(f"    Could not remove outbound references: {e}")
+    
+    time.sleep(5)
+
+def delete_security_groups_with_retry(sgs_to_delete):
+    """Delete security groups with retry logic."""
+    deleted_sgs = []
+    remaining_sgs = sgs_to_delete.copy()
+    
+    for attempt in range(5):  # Increased attempts
+        if not remaining_sgs:
+            break
         
-        for sg in all_sgs_again.get("SecurityGroups", []):
-            if sg["GroupId"] in sg_ids_to_delete:
-                continue  # Skip the ones we're deleting
-            
-            # Check inbound rules
-            inbound_to_remove = []
-            if sg.get("IpPermissions"):
-                for rule in sg["IpPermissions"]:
-                    # Check if rule references any of our security groups
-                    for user_id_group_pair in rule.get("UserIdGroupPairs", []):
-                        if user_id_group_pair.get("GroupId") in sg_ids_to_delete:
-                            inbound_to_remove.append(rule)
-                            break
-            
-            if inbound_to_remove:
-                try:
-                    ec2_client.revoke_security_group_ingress(
-                        GroupId=sg["GroupId"],
-                        IpPermissions=inbound_to_remove
-                    )
-                    logger.info(f"  ✓ Removed references from security group: {sg.get('GroupName', sg['GroupId'])}")
-                except ClientError as e:
-                    logger.debug(f"    Could not remove inbound references: {e}")
-            
-            # Check outbound rules
-            outbound_to_remove = []
-            if sg.get("IpPermissionsEgress"):
-                for rule in sg["IpPermissionsEgress"]:
-                    # Check if rule references any of our security groups
-                    for user_id_group_pair in rule.get("UserIdGroupPairs", []):
-                        if user_id_group_pair.get("GroupId") in sg_ids_to_delete:
-                            outbound_to_remove.append(rule)
-                            break
-            
-            if outbound_to_remove:
-                try:
-                    ec2_client.revoke_security_group_egress(
-                        GroupId=sg["GroupId"],
-                        IpPermissions=outbound_to_remove
-                    )
-                    logger.info(f"  ✓ Removed outbound references from security group: {sg.get('GroupName', sg['GroupId'])}")
-                except ClientError as e:
-                    logger.debug(f"    Could not remove outbound references: {e}")
+        logger.info(f"  Attempt {attempt + 1}/5: Trying to delete {len(remaining_sgs)} security group(s)")
         
-        # Wait a bit more
-        time.sleep(5)
-        
-        # Third pass: Try to delete security groups with retry logic
-        deleted_sgs = []
-        remaining_sgs = sgs_to_delete.copy()
-        
-        for attempt in range(3):
-            if not remaining_sgs:
-                break
-            
-            logger.info(f"  Attempt {attempt + 1}/3: Trying to delete {len(remaining_sgs)} security group(s)")
-            
-            for sg_info in remaining_sgs[:]:  # Copy list to iterate
-                try:
-                    ec2_client.delete_security_group(GroupId=sg_info["GroupId"])
-                    logger.info(f"  ✓ Deleted security group: {sg_info['GroupName']} ({sg_info['GroupId']})")
+        for sg_info in remaining_sgs[:]:
+            try:
+                ec2_client.delete_security_group(GroupId=sg_info["GroupId"])
+                logger.info(f"  ✓ Deleted security group: {sg_info['GroupName']} ({sg_info['GroupId']})")
+                deleted_sgs.append(sg_info)
+                remaining_sgs.remove(sg_info)
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "")
+                if error_code == "DependencyViolation":
+                    # Check network interfaces
+                    try:
+                        enis = ec2_client.describe_network_interfaces(
+                            Filters=[{"Name": "group-id", "Values": [sg_info["GroupId"]]}]
+                        )
+                        if enis.get("NetworkInterfaces"):
+                            logger.debug(f"    Security group {sg_info['GroupName']} attached to {len(enis['NetworkInterfaces'])} network interface(s)")
+                            # Try to detach from available network interfaces
+                            for eni in enis["NetworkInterfaces"]:
+                                if eni["Status"] == "available":
+                                    try:
+                                        ec2_client.delete_network_interface(NetworkInterfaceId=eni["NetworkInterfaceId"])
+                                        logger.info(f"    ✓ Deleted network interface: {eni['NetworkInterfaceId']}")
+                                    except:
+                                        pass
+                    except:
+                        pass
+                elif error_code == "InvalidGroup.NotFound":
+                    logger.debug(f"  Security group {sg_info['GroupName']} already deleted")
                     deleted_sgs.append(sg_info)
                     remaining_sgs.remove(sg_info)
-                except ClientError as e:
-                    error_code = e.response.get("Error", {}).get("Code", "")
-                    if error_code == "DependencyViolation":
-                        # Check if it's still attached to network interfaces
-                        try:
-                            enis = ec2_client.describe_network_interfaces(
-                                Filters=[{"Name": "group-id", "Values": [sg_info["GroupId"]]}]
-                            )
-                            if enis.get("NetworkInterfaces"):
-                                logger.debug(f"    Security group {sg_info['GroupName']} still attached to {len(enis['NetworkInterfaces'])} network interface(s)")
-                            else:
-                                logger.debug(f"    Security group {sg_info['GroupName']} has unknown dependencies")
-                        except:
-                            pass
-                    elif error_code == "InvalidGroup.NotFound":
-                        logger.debug(f"  Security group {sg_info['GroupName']} already deleted")
-                        deleted_sgs.append(sg_info)
-                        remaining_sgs.remove(sg_info)
-                    else:
-                        logger.debug(f"    Could not delete security group {sg_info['GroupName']}: {e}")
-            
-            if remaining_sgs and attempt < 2:
-                logger.info(f"  Waiting 10 seconds before retry...")
-                time.sleep(10)
+                else:
+                    logger.debug(f"    Could not delete security group {sg_info['GroupName']}: {e}")
         
-        if remaining_sgs:
-            logger.warning(f"  ⚠ {len(remaining_sgs)} security group(s) could not be deleted: {[sg['GroupName'] for sg in remaining_sgs]}")
-            logger.info("  They will be deleted when VPC is deleted")
-        else:
-            logger.info(f"  ✓ Successfully deleted {len(deleted_sgs)} security group(s)")
+        if remaining_sgs and attempt < 4:
+            wait_time = 15 + (attempt * 10)  # Progressive wait
+            logger.info(f"  Waiting {wait_time} seconds before retry...")
+            time.sleep(wait_time)
+    
+    if remaining_sgs:
+        logger.warning(f"  ⚠ {len(remaining_sgs)} security group(s) could not be deleted: {[sg['GroupName'] for sg in remaining_sgs]}")
+        logger.info("  They will be deleted when VPC is deleted")
+    else:
+        logger.info(f"  ✓ Successfully deleted {len(deleted_sgs)} security group(s)")
+
+def delete_route_tables():
+    """Delete route tables with proper dependency cleanup."""
+    logger.info("  Deleting route tables...")
+    
+    try:
+        # Get all route tables for project VPCs
+        vpc_name = f"vpc-for-{project_name}"
+        vpcs = ec2_client.describe_vpcs(
+            Filters=[{"Name": "tag:Name", "Values": [vpc_name]}]
+        )
         
-        # delete route tables with proper dependency cleanup
-        # Get unique VPC IDs from security groups
-        vpc_ids = {sg["VpcId"] for sg in sgs_to_delete if sg.get("VpcId")}
-        
-        for vpc_id in vpc_ids:
+        for vpc in vpcs.get("Vpcs", []):
+            vpc_id = vpc["VpcId"]
             route_tables = ec2_client.describe_route_tables(
                 Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
             )
+            
             for rt in route_tables["RouteTables"]:
                 if not any(assoc.get("Main") for assoc in rt["Associations"]):
                     rt_id = rt["RouteTableId"]
                     
-                    # First, disassociate from subnets
+                    # Disassociate from subnets
                     for assoc in rt["Associations"]:
                         if not assoc.get("Main") and "SubnetId" in assoc:
                             try:
@@ -1106,34 +1166,30 @@ def delete_secret_groups_and_route_tables():
                                 if e.response["Error"]["Code"] != "InvalidAssociationID.NotFound":
                                     logger.debug(f"    Could not disassociate route table {rt_id}: {e}")
                     
-                    # Wait a moment for disassociation
                     time.sleep(2)
                     
-                    # Then delete the route table
+                    # Delete the route table
                     try:
                         ec2_client.delete_route_table(RouteTableId=rt_id)
                         logger.info(f"  ✓ Deleted route table: {rt_id} (VPC: {vpc_id})")
                     except ClientError as e:
                         if e.response["Error"]["Code"] != "InvalidRouteTableID.NotFound":
                             logger.debug(f"  Could not delete route table {rt_id}: {e}")
-        
-        logger.info("✓ Security groups processed")
     except Exception as e:
-        logger.error(f"Error deleting security groups: {e}")
+        logger.debug(f"Error deleting route tables: {e}")
 
-def delete_remaining_security_groups():
-    """Delete any remaining security groups after VPC deletion."""
-    logger.info("Checking for remaining security groups...")
+def force_delete_specific_security_group():
+    """Force delete remaining security groups that are blocking VPC deletion."""
+    logger.info("Checking for remaining security groups blocking VPC deletion...")
     
     try:
-        # Get all security groups
+        # Find all security groups matching project name pattern
         all_sgs = ec2_client.describe_security_groups()
-        
-        # Find security groups matching project name pattern
         remaining_sgs = []
+        
         for sg in all_sgs.get("SecurityGroups", []):
             sg_name = sg.get("GroupName", "")
-            # Check if security group name contains project name
+            # Check if security group name contains project name and is not default
             if project_name in sg_name and sg_name != "default":
                 remaining_sgs.append({
                     "GroupId": sg["GroupId"],
@@ -1142,53 +1198,129 @@ def delete_remaining_security_groups():
                 })
         
         if not remaining_sgs:
-            logger.info("  No remaining security groups found")
+            logger.info("  No remaining security groups found to delete")
             return
         
-        logger.info(f"  Found {len(remaining_sgs)} remaining security group(s) to delete")
+        logger.info(f"  Found {len(remaining_sgs)} remaining security group(s) to force delete: {[sg['GroupName'] for sg in remaining_sgs]}")
         
-        # Try to delete remaining security groups
+        # Force delete each remaining security group
         for sg_info in remaining_sgs:
+            sg_id = sg_info["GroupId"]
+            sg_name = sg_info["GroupName"]
+            
             try:
-                # Remove all rules first
-                try:
-                    sg_detail = ec2_client.describe_security_groups(GroupIds=[sg_info["GroupId"]])
-                    if sg_detail.get("SecurityGroups"):
-                        sg = sg_detail["SecurityGroups"][0]
-                        
-                        if sg.get("IpPermissions"):
-                            ec2_client.revoke_security_group_ingress(
-                                GroupId=sg_info["GroupId"],
-                                IpPermissions=sg["IpPermissions"]
-                            )
-                        
-                        if sg.get("IpPermissionsEgress"):
-                            egress_rules = [r for r in sg["IpPermissionsEgress"] 
-                                           if not (r.get("IpProtocol") == "-1" and 
-                                                  len(r.get("IpRanges", [])) == 1 and
-                                                  r["IpRanges"][0].get("CidrIp") == "0.0.0.0/0")]
-                            if egress_rules:
-                                ec2_client.revoke_security_group_egress(
-                                    GroupId=sg_info["GroupId"],
-                                    IpPermissions=egress_rules
-                                )
-                except:
-                    pass
+                # Get security group details
+                sg_detail = ec2_client.describe_security_groups(GroupIds=[sg_id])
+                if not sg_detail.get("SecurityGroups"):
+                    logger.debug(f"  Security group {sg_name} ({sg_id}) not found (already deleted)")
+                    continue
                 
-                # Try to delete
-                time.sleep(2)
-                ec2_client.delete_security_group(GroupId=sg_info["GroupId"])
-                logger.info(f"  ✓ Deleted remaining security group: {sg_info['GroupName']} ({sg_info['GroupId']})")
+                sg = sg_detail["SecurityGroups"][0]
+                logger.info(f"  Force deleting security group: {sg_name} ({sg_id})")
+                
+                # Remove all rules first
+                if sg.get("IpPermissions"):
+                    try:
+                        ec2_client.revoke_security_group_ingress(
+                            GroupId=sg_id,
+                            IpPermissions=sg["IpPermissions"]
+                        )
+                        logger.info(f"  ✓ Removed inbound rules from {sg_name}")
+                    except ClientError as e:
+                        if e.response.get("Error", {}).get("Code") != "InvalidPermission.NotFound":
+                            logger.debug(f"    Could not remove inbound rules: {e}")
+                
+                if sg.get("IpPermissionsEgress"):
+                    egress_rules = [r for r in sg["IpPermissionsEgress"] 
+                                   if not (r.get("IpProtocol") == "-1" and 
+                                          len(r.get("IpRanges", [])) == 1 and
+                                          r["IpRanges"][0].get("CidrIp") == "0.0.0.0/0")]
+                    if egress_rules:
+                        try:
+                            ec2_client.revoke_security_group_egress(
+                                GroupId=sg_id,
+                                IpPermissions=egress_rules
+                            )
+                            logger.info(f"  ✓ Removed outbound rules from {sg_name}")
+                        except ClientError as e:
+                            if e.response.get("Error", {}).get("Code") != "InvalidPermission.NotFound":
+                                logger.debug(f"    Could not remove outbound rules: {e}")
+                
+                # Check for network interfaces and delete if available
+                try:
+                    enis = ec2_client.describe_network_interfaces(
+                        Filters=[{"Name": "group-id", "Values": [sg_id]}]
+                    )
+                    for eni in enis.get("NetworkInterfaces", []):
+                        if eni["Status"] == "available":
+                            try:
+                                ec2_client.delete_network_interface(NetworkInterfaceId=eni["NetworkInterfaceId"])
+                                logger.info(f"  ✓ Deleted network interface: {eni['NetworkInterfaceId']}")
+                            except:
+                                pass
+                except Exception as e:
+                    logger.debug(f"    Could not check network interfaces: {e}")
+                
+                time.sleep(10)
+                
+                # Try to delete the security group with retry
+                deleted = False
+                for attempt in range(3):
+                    try:
+                        ec2_client.delete_security_group(GroupId=sg_id)
+                        logger.info(f"  ✓ Deleted security group: {sg_name} ({sg_id})")
+                        deleted = True
+                        break
+                    except ClientError as e:
+                        if e.response["Error"]["Code"] == "InvalidGroup.NotFound":
+                            logger.info(f"  Security group {sg_name} ({sg_id}) already deleted")
+                            deleted = True
+                            break
+                        elif attempt < 2:
+                            logger.info(f"  Retrying security group deletion in 15 seconds...")
+                            time.sleep(15)
+                        else:
+                            logger.warning(f"  Could not delete security group {sg_name} ({sg_id}): {e}")
+                
+                if not deleted:
+                    logger.warning(f"  ⚠ Failed to delete security group: {sg_name} ({sg_id})")
+                    
             except ClientError as e:
-                error_code = e.response.get("Error", {}).get("Code", "")
-                if error_code == "InvalidGroup.NotFound":
-                    logger.debug(f"  Security group {sg_info['GroupName']} already deleted")
+                if e.response["Error"]["Code"] == "InvalidGroupId.NotFound":
+                    logger.debug(f"  Security group {sg_name} ({sg_id}) not found (already deleted)")
                 else:
-                    logger.warning(f"  Could not delete remaining security group {sg_info['GroupName']}: {e}")
+                    logger.warning(f"  Error processing security group {sg_name} ({sg_id}): {e}")
+            except Exception as e:
+                logger.warning(f"  Error force deleting security group {sg_name} ({sg_id}): {e}")
         
-        logger.info("✓ Remaining security groups processed")
+        logger.info("✓ Force delete security groups completed")
     except Exception as e:
-        logger.debug(f"Error checking remaining security groups: {e}")
+        logger.debug(f"Error in force delete specific security group: {e}")
+
+def force_delete_specific_vpc():
+    """Force delete the specific VPC that's having issues."""
+    logger.info("Attempting to force delete specific VPC...")
+    
+    vpc_id = "vpc-07bc97e641ca53b3c"  # The VPC we found earlier
+    
+    try:
+        # Check if VPC still exists
+        vpcs = ec2_client.describe_vpcs(VpcIds=[vpc_id])
+        if not vpcs.get("Vpcs"):
+            logger.info(f"  VPC {vpc_id} already deleted")
+            return True
+        
+        logger.info(f"  Found VPC to delete: {vpc_id}")
+        
+        # Force delete with comprehensive cleanup
+        return delete_single_vpc(vpc_id)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "InvalidVpcID.NotFound":
+            logger.info(f"  VPC {vpc_id} already deleted")
+            return True
+        else:
+            logger.error(f"  Error checking VPC {vpc_id}: {e}")
+            return False
 
 def delete_iam_roles():
     """Delete IAM roles and policies."""
@@ -1356,10 +1488,20 @@ def main():
         delete_cloudfront_distributions()
         delete_alb_resources()
         delete_ec2_instances()
-        delete_nat_gateways()  # Add dedicated NAT gateway cleanup
-        delete_secret_groups_and_route_tables()         
+        delete_nat_gateways()
+        delete_security_groups()
+        delete_route_tables()
+        
+        # Force delete specific problematic resources
+        force_delete_specific_security_group()
+        
         failed_vpcs = delete_vpc_resources()
-        delete_remaining_security_groups()  # Check for any remaining security groups after VPC deletion
+        
+        # If VPC deletion failed, try force delete
+        if failed_vpcs:
+            logger.info("Attempting force deletion of specific VPC...")
+            force_delete_specific_vpc()
+        
         delete_opensearch_collection()
         delete_knowledge_bases()
         delete_secrets()
