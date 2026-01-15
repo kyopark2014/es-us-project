@@ -333,7 +333,7 @@ AWS credential을 아래와 같이 AWS CLI를 이용해 등록합니다.
 aws configure
 ```
 
-설치하다가 발생하는 각종 문제는 [Kiro-cli](https://aws.amazon.com/ko/blogs/korea/kiro-general-availability/)를 이용해 빠르게 수정합니다. 아래와 같이 설치하고 실행시는 셀에서 "kiro-cli"라고 입력합니다.
+설치하다가 발생하는 각종 문제는 [Kiro-cli](https://aws.amazon.com/ko/blogs/korea/kiro-general-availability/)를 이용해 빠르게 수정합니다. 아래와 같이 설치할 수 있지만, Windows에서는 [Kiro 설치](https://kiro.dev/downloads/)에서 다운로드 설치합니다. 실행시는 셀에서 "kiro-cli"라고 입력합니다. 
 
 ```python
 curl -fsSL https://cli.kiro.dev/install | bash
