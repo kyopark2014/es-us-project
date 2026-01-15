@@ -629,22 +629,16 @@ def create_ec2_role(knowledge_base_role_arn: str) -> str:
             }
         },
         {
-            "name": f"cloudwatch-logs-policy-for-{project_name}",
+            "name": f"cloudwatch-policy-for-{project_name}",
             "document": {
                 "Version": "2012-10-17",
                 "Statement": [
                     {
                         "Effect": "Allow",
                         "Action": [
-                            "logs:DescribeLogGroups",
-                            "logs:DescribeLogStreams",
-                            "logs:GetLogEvents",
-                            "logs:FilterLogEvents",
-                            "logs:GetLogGroupFields",
-                            "logs:GetLogRecord",
-                            "logs:GetQueryResults",
-                            "logs:StartQuery",
-                            "logs:StopQuery"
+                            "cloudwatch:*",
+                            "logs:*",
+                            "events:*"
                         ],
                         "Resource": ["*"]
                     }

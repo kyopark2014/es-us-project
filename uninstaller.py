@@ -8,6 +8,8 @@ import boto3
 import time
 import logging
 from botocore.exceptions import ClientError
+import argparse
+import sys
 
 # Configuration
 project_name = "es-us"
@@ -1631,6 +1633,24 @@ def main():
     logger.info(f"Region: {region}")
     logger.info(f"Account ID: {account_id}")
     logger.info("="*60)
+
+    parser = argparse.ArgumentParser(description="AgentCore Runtime Uninstaller")
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt and proceed with deletion"
+    )
+    
+    args = parser.parse_args()
+
+    if not args.yes:
+        print("\n" + "="*60)
+        print("WARNING: This will delete all resources created by installer.py")
+        print("="*60)
+        response = input("\nAre you sure you want to continue? (yes/no): ")
+        if response.lower() != 'yes':
+            print("Uninstallation cancelled.")
+            sys.exit(0)
     
     start_time = time.time()
     
