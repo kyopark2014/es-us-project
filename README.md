@@ -319,7 +319,27 @@ sudo docker logs [container ID]
 
 ### Local에서 실행하기
 
-venv로 환경을 구성하면 편리합니다. 아래와 같이 환경을 설정합니다.
+AWS 환경을 잘 활용하기 위해서는 [AWS CLI를 설치](https://docs.aws.amazon.com/ko_kr/cli/v1/userguide/cli-chap-install.html)하여야 합니다. EC2에서 배포하는 경우에는 별도로 설치가 필요하지 않습니다. Local에 설치시는 아래 명령어를 참조합니다.
+
+```text
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" 
+unzip awscliv2.zip
+sudo ./aws/install
+```
+
+AWS credential을 아래와 같이 AWS CLI를 이용해 등록합니다.
+
+```text
+aws configure
+```
+
+설치하다가 발생하는 각종 문제는 [Kiro-cli](https://aws.amazon.com/ko/blogs/korea/kiro-general-availability/)를 이용해 빠르게 수정합니다. 아래와 같이 설치하고 실행시는 셀에서 "kiro-cli"라고 입력합니다.
+
+```python
+curl -fsSL https://cli.kiro.dev/install | bash
+```
+
+venv로 환경을 구성하면 편리하게 패키지를 관리합니다. 아래와 같이 환경을 설정합니다.
 
 ```text
 python -m venv .venv
