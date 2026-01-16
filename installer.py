@@ -3069,7 +3069,7 @@ def create_cloudfront_distribution(alb_info: Dict[str, str], s3_bucket_name: str
     logger.info("  Creating CloudFront distribution with ALB and S3 origins...")
     distribution_config = {
         "CallerReference": f"{project_name}-{int(time.time())}",
-        "Comment": f"CloudFront-for-{project_name}-Hybrid",
+        "Comment": f"CloudFront-for-{project_name}",
         "DefaultCacheBehavior": {
             "TargetOriginId": f"alb-{project_name}",
             "ViewerProtocolPolicy": "redirect-to-https",
