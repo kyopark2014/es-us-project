@@ -21,7 +21,11 @@ logger.info(f"config: {config}")
 region = config["region"] if "region" in config else "us-west-2"
 projectName = config["projectName"] if "projectName" in config else "mcp"
 workingDir = os.path.dirname(os.path.abspath(__file__))
+# 상위 디렉토리의 contents 폴더 경로 추가
+parent_dir = os.path.dirname(workingDir)
+contents_dir = os.path.join(parent_dir, "contents")
 logger.info(f"workingDir: {workingDir}")
+logger.info(f"contents_dir: {contents_dir}")
 
 mcp_user_config = {}    
 
@@ -116,13 +120,18 @@ def load_config(mcp_type):
         }    
     
     elif mcp_type == "filesystem":
+        # filesystem MCP 서버에 여러 디렉토리 허용
+        # workingDir와 contents 디렉토리 모두 허용
+        parent_dir = os.path.dirname(workingDir)
+        contents_dir = os.path.join(parent_dir, "contents")
         return {
             "mcpServers": {
                 "filesystem": {
                     "command": "npx",
                     "args": [
                         "@modelcontextprotocol/server-filesystem",
-                        f"{workingDir}"
+                        f"{workingDir}",
+                        f"{contents_dir}"
                     ]
                 }
             }
