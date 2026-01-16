@@ -54,7 +54,7 @@ def setup_logging(log_level=logging.INFO):
         datefmt=date_format,
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler(f"installer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+            # logging.FileHandler(f"installer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
         ]
     )
     
@@ -66,7 +66,7 @@ logger = setup_logging()
 
 def create_s3_bucket() -> str:
     """Create S3 bucket with CORS configuration."""
-    logger.info(f"[1/10] Creating S3 bucket: {bucket_name}")
+    logger.info(f"[2/10] Creating S3 bucket: {bucket_name}")
     
     try:
         # Create bucket
@@ -247,7 +247,7 @@ def attach_inline_policy(role_name: str, policy_name: str, policy_document: Dict
 
 def create_knowledge_base_role() -> str:
     """Create Knowledge Base IAM role."""
-    logger.info("[2/10] Creating Knowledge Base IAM role")
+    logger.info("[3/10] Creating Knowledge Base IAM role")
     role_name = f"role-knowledge-base-for-{project_name}-{region}"
     
     assume_role_policy = {
@@ -336,7 +336,7 @@ def create_knowledge_base_role() -> str:
 
 def create_agent_role() -> str:
     """Create Agent IAM role."""
-    logger.info("[2/10] Creating Agent IAM role")
+    logger.info("[3/10] Creating Agent IAM role")
     role_name = f"role-agent-for-{project_name}-{region}"
     
     assume_role_policy = {
@@ -416,7 +416,7 @@ def create_agent_role() -> str:
 
 def create_ec2_role(knowledge_base_role_arn: str) -> str:
     """Create EC2 IAM role."""
-    logger.info("[2/10] Creating EC2 IAM role")
+    logger.info("[3/10] Creating EC2 IAM role")
     role_name = f"role-ec2-for-{project_name}-{region}"
     
     assume_role_policy = {
@@ -667,7 +667,7 @@ def create_ec2_role(knowledge_base_role_arn: str) -> str:
 
 def create_secrets() -> Dict[str, str]:
     """Create Secrets Manager secrets."""
-    logger.info("[3/10] Creating Secrets Manager secrets")
+    logger.info("[1/10] Creating Secrets Manager secrets")
     logger.info("Please enter API keys when prompted (press Enter to skip and leave empty):")
     
     secrets = {
@@ -1998,7 +1998,7 @@ def ensure_private_subnets(vpc_id: str, public_subnets: List[str], existing_subn
 
 def create_vpc() -> Dict[str, str]:
     """Create VPC with subnets and security groups."""
-    logger.info("[5/10] Creating VPC and networking resources")
+    logger.info("[6/10] Creating VPC and networking resources")
     
     vpc_name = f"vpc-for-{project_name}"
     cidr_block = get_available_cidr_block()
@@ -2408,7 +2408,7 @@ def create_vpc() -> Dict[str, str]:
 
 def create_alb(vpc_info: Dict[str, str]) -> Dict[str, str]:
     """Create Application Load Balancer."""
-    logger.info("[6/10] Creating Application Load Balancer")
+    logger.info("[7/10] Creating Application Load Balancer")
     alb_name = f"alb-for-{project_name}"
     
     # Check if ALB already exists
@@ -2509,7 +2509,7 @@ def create_alb(vpc_info: Dict[str, str]) -> Dict[str, str]:
 
 def create_lambda_role() -> str:
     """Create Lambda RAG IAM role."""
-    logger.info("[2/10] Creating Lambda RAG IAM role")
+    logger.info("[3/10] Creating Lambda RAG IAM role")
     role_name = f"role-lambda-rag-for-{project_name}-{region}"
     
     assume_role_policy = {
@@ -2743,7 +2743,7 @@ def create_vector_index_in_opensearch(collection_endpoint: str, index_name: str)
 
 def create_knowledge_base_with_opensearch(opensearch_info: Dict[str, str], knowledge_base_role_arn: str, s3_bucket_name: str) -> str:
     """Create Knowledge Base with correct OpenSearch collection."""
-    logger.info("[4.5/10] Creating Knowledge Base with OpenSearch collection")
+    logger.info("[5/10] Creating Knowledge Base with OpenSearch collection")
     
     # Create vector index first
     logger.info("  Creating vector index in OpenSearch collection...")
@@ -2905,7 +2905,7 @@ def create_knowledge_base_with_opensearch(opensearch_info: Dict[str, str], knowl
 
 def create_agentcore_memory_role() -> str:
     """Create AgentCore Memory IAM role."""
-    logger.info("[2/10] Creating AgentCore Memory IAM role")
+    logger.info("[3/10] Creating AgentCore Memory IAM role")
     role_name = f"role-agentcore-memory-for-{project_name}-{region}"
     
     assume_role_policy = {
@@ -2956,7 +2956,7 @@ def create_agentcore_memory_role() -> str:
 
 def create_cloudfront_distribution(alb_info: Dict[str, str], s3_bucket_name: str) -> Dict[str, str]:
     """Create CloudFront distribution with hybrid ALB + S3 origins."""
-    logger.info("[7/10] Creating CloudFront distribution (ALB + S3 hybrid)")
+    logger.info("[8/10] Creating CloudFront distribution (ALB + S3 hybrid)")
     
     # Check if CloudFront distribution already exists
     try:
@@ -3325,7 +3325,7 @@ def create_ec2_instance(vpc_info: Dict[str, str], ec2_role_arn: str,
                        knowledge_base_role_arn: str, opensearch_info: Dict[str, str],
                        s3_bucket_name: str, cloudfront_domain: str, knowledge_base_id: str) -> str:
     """Create EC2 instance."""
-    logger.info("[8/10] Creating EC2 instance")
+    logger.info("[9/10] Creating EC2 instance")
     
     instance_name = f"app-for-{project_name}"
     
@@ -3504,7 +3504,7 @@ def create_ec2_instance(vpc_info: Dict[str, str], ec2_role_arn: str,
 
 def create_alb_target_group_and_listener(alb_info: Dict[str, str], instance_id: str, vpc_info: Dict[str, str]) -> Dict[str, str]:
     """Create ALB target group and listener."""
-    logger.info("[9/10] Creating ALB target group and listener")
+    logger.info("[10/10] Creating ALB target group and listener")
     
     target_port = 8501
     target_group_name = f"TG-for-{project_name}"
@@ -3831,7 +3831,7 @@ def check_application_ready(domain: str, max_attempts: int = 120, wait_seconds: 
         max_attempts: Maximum number of attempts to check readiness
         wait_seconds: Seconds to wait between attempts
     """
-    logger.info(f"[10/10] Checking if application is ready at https://{domain}")
+    logger.info(f"Checking if application is ready at https://{domain}")
     logger.info(f"  Maximum {max_attempts} attempts, {wait_seconds} seconds between attempts (up to {max_attempts * wait_seconds // 60} minutes)")
     url = f"https://{domain}"
     
@@ -3935,41 +3935,41 @@ def main():
     start_time = time.time()
     
     try:
-        # 1. Create S3 bucket
+        # 1. Create secrets
+        secret_arns = create_secrets()
+        logger.info(f"Secrets created...")
+        
+        # 2. Create S3 bucket
         s3_bucket_name = create_s3_bucket()
         logger.info(f"S3 bucket created...")
         
-        # 2. Create IAM roles
+        # 3. Create IAM roles
         knowledge_base_role_arn = create_knowledge_base_role()
         agent_role_arn = create_agent_role()
         ec2_role_arn = create_ec2_role(knowledge_base_role_arn)
         logger.info(f"IAM roles created...")
         
-        # 3. Create secrets
-        secret_arns = create_secrets()
-        logger.info(f"Secrets created...")
-        
         # 4. Create OpenSearch collection (with EC2 and Knowledge Base roles for data access)
         opensearch_info = create_opensearch_collection(ec2_role_arn, knowledge_base_role_arn)
         logger.info(f"OpenSearch collection created...")
         
-        # 4.5. Create Knowledge Base with correct OpenSearch collection        
+        # 5. Create Knowledge Base with correct OpenSearch collection        
         knowledge_base_id = create_knowledge_base_with_opensearch(opensearch_info, knowledge_base_role_arn, s3_bucket_name)
         logger.info(f"Knowledge base created...")
         
-        # 5. Create VPC
+        # 6. Create VPC
         vpc_info = create_vpc()
         logger.info(f"VPC created...")
         
-        # 6. Create ALB
+        # 7. Create ALB
         alb_info = create_alb(vpc_info)
         logger.info(f"ALB created...")
         
-        # 7. Create CloudFront distribution
+        # 8. Create CloudFront distribution
         cloudfront_info = create_cloudfront_distribution(alb_info, s3_bucket_name)
         logger.info(f"CloudFront distribution created...")
         
-        # 8. Create EC2 instance
+        # 9. Create EC2 instance
         instance_id = create_ec2_instance(
             vpc_info, ec2_role_arn, knowledge_base_role_arn,
             opensearch_info, s3_bucket_name, cloudfront_info["domain"],
@@ -3977,11 +3977,11 @@ def main():
         )
         logger.info(f"EC2 instance created...")
         
-        # 9. Create ALB target group and listener
+        # 10. Create ALB target group and listener
         alb_listener_info = create_alb_target_group_and_listener(alb_info, instance_id, vpc_info)
         logger.info(f"ALB target group and listener created...")
         
-        # check whether the applireation is ready
+        # Check whether the application is ready
         logger.info(f"Checking if application is ready: {cloudfront_info['domain']}")
         check_application_ready(cloudfront_info["domain"])        
         
