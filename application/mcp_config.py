@@ -89,7 +89,7 @@ def load_config(mcp_type):
             }
         }    
 
-    elif mcp_type == "terminal":
+    elif mcp_type == "terminal (MAC)":
         return {
             "mcpServers": {
                 "iterm-mcp": {
@@ -101,6 +101,19 @@ def load_config(mcp_type):
                 }
             }
         }
+    
+    elif mcp_type == "terminal (linux)":
+        return {
+            "mcpServers": {
+                "terminal-mcp": {
+                    "command": "npx",
+                    "args": [
+                        "-y",
+                        "terminal-mcp"
+                    ]
+                }
+            }
+        }    
     
     elif mcp_type == "filesystem":
         return {
