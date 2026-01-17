@@ -120,8 +120,6 @@ def load_config(mcp_type):
         }    
     
     elif mcp_type == "filesystem":
-        # filesystem MCP 서버에 여러 디렉토리 허용
-        # workingDir와 contents 디렉토리 모두 허용
         parent_dir = os.path.dirname(workingDir)
         contents_dir = os.path.join(parent_dir, "contents")
         return {
