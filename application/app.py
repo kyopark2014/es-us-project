@@ -59,7 +59,7 @@ with st.sidebar:
     
     # radio selection
     mode = st.radio(
-        label="원하는 대화 형태를 선택하세요. ",options=["일상적인 대화", "RAG", "Agent", "Agent (Chat)", "QA Agent", "이미지 분석"], index=2
+        label="원하는 대화 형태를 선택하세요. ",options=["일상적인 대화", "RAG", "Agent", "Agent (Chat)", "QA Agent", "이미지 분석"], index=3
     )   
     st.info(mode_descriptions[mode][0])
     
