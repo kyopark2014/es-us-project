@@ -70,7 +70,17 @@ with st.sidebar:
 
         # Change radio to checkbox
         mcp_options = [
-            "basic", "use-aws", "tavily-search", "knowledge base", "code interpreter", "terminal (MAC)", "terminal (linux)", "filesystem", "aws_documentation","사용자 설정"
+            "basic", 
+            "use-aws", 
+            "tavily-search", 
+            "knowledge base", 
+            "aws_documentation", 
+            "trade_info", 
+            "code interpreter", 
+            "terminal (MAC)", 
+            "terminal (linux)", 
+            "filesystem", 
+            "사용자 설정"
         ]
         mcp_selections = {}
         default_selections = ["basic", "knowledge base", "code interpreter", "aws_documentation"]
