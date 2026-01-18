@@ -26,7 +26,7 @@ async def run_qa_agent(query, containers):
     image_url = []
     references = []
 
-    mcp_servers = ["knowledge base"]
+    mcp_servers = ["knowledge base", "tavily-search"]
 
     mcp_json = mcp_config.load_selected_config(mcp_servers)
     logger.info(f"mcp_json: {mcp_json}")
@@ -97,7 +97,7 @@ async def run_qa_agent(query, containers):
                                 result += text_content
                                 
                             # logger.info(f"result: {result}")                
-                            chat.update_streaming_result(containers, result)
+                            chat.update_streaming_result(containers, result, "markdown")
 
                         elif content_item.get('type') == 'tool_use':
                             logger.info(f"content_item: {content_item}")      
