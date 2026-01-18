@@ -16,7 +16,7 @@ RUN pip install pandas numpy
 RUN pip install tavily-python==0.5.0 pytz>=2025.2
 RUN pip install beautifulsoup4==4.12.3 plotly_express==0.4.1 matplotlib==3.10.0 PyPDF2==3.0.1
 RUN pip install opensearch-py wikipedia aioboto3 requests
-RUN pip install uv kaleido diagrams graphviz rich colorama
+RUN pip install uv kaleido diagrams graphviz rich colorama finance-datareader
 
 RUN mkdir -p /root/.streamlit
 COPY config.toml /root/.streamlit/
