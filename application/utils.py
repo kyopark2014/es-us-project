@@ -159,3 +159,106 @@ except Exception as e:
     # raise e
     pass
 
+def sanitize_data_source_name(name):
+    """
+    Sanitize a name to comply with AWS Bedrock data source name pattern:
+    ([0-9a-zA-Z][_-]?){1,100}
+    - Pattern means: alphanumeric, optionally followed by underscore or hyphen, repeated 1-100 times
+    - Cannot have consecutive underscores or hyphens
+    - Must start with alphanumeric
+    """
+    import re
+    # Remove any characters that are not alphanumeric, underscore, or hyphen
+    sanitized = re.sub(r'[^0-9a-zA-Z_-]', '', name)
+    
+    # Replace consecutive underscores/hyphens with single hyphen
+    # This ensures the pattern [0-9a-zA-Z][_-]? is followed correctly
+    sanitized = re.sub(r'[_-]{2,}', '-', sanitized)
+    
+    # Ensure it starts with alphanumeric character
+    if sanitized and not sanitized[0].isalnum():
+        sanitized = 'ds' + sanitized
+    
+    # Remove trailing hyphens/underscores (they must be followed by alphanumeric per pattern)
+    sanitized = sanitized.rstrip('_-')
+    
+    # Ensure it's not empty and limit to 100 characters
+    if not sanitized:
+        sanitized = 'datasource'
+    
+    # Final validation: ensure it matches the pattern exactly
+    pattern = re.compile(r'^([0-9a-zA-Z][_-]?){1,100}$')
+    if not pattern.match(sanitized):
+        # If still doesn't match, create a safe default name
+        # Use project name or create a simple alphanumeric name
+        safe_name = re.sub(r'[^0-9a-zA-Z]', '', name.lower())
+        if not safe_name:
+            safe_name = 'datasource'
+        sanitized = safe_name[:100]
+    
+    return sanitized[:100]
+
+knowledge_base_id = config.get('knowledge_base_id')
+data_source_id = config.get('data_source_id')
+region = config.get('region')
+s3_bucket = config.get('s3_bucket')
+
+def update_rag_info():
+    try: 
+        client = boto3.client(
+            service_name='bedrock-agent',
+            region_name=region
+        )
+
+        response = client.list_knowledge_bases(
+            maxResults=50
+        )
+        logger.info(f"(list_knowledge_bases) response: {response}")
+        
+        knowledge_base_name = projectName
+        if "knowledgeBaseSummaries" in response:
+            summaries = response["knowledgeBaseSummaries"]
+            for summary in summaries:
+                if summary["name"] == knowledge_base_name:
+                    knowledge_base_id = summary["knowledgeBaseId"]
+                    logger.info(f"prepknowledge_base_idare: {knowledge_base_id}")
+
+        response = client.list_data_sources(
+            knowledgeBaseId=knowledge_base_id,
+            maxResults=10
+        )        
+        logger.info(f"(list_data_sources) response: {response}")
+        
+        data_source_name = sanitize_data_source_name(s3_bucket)
+        if 'dataSourceSummaries' in response:
+            for data_source in response['dataSourceSummaries']:
+                logger.info(f"data_source: {data_source}")
+                if data_source['name'] == data_source_name:
+                    data_source_id = data_source['dataSourceId']
+                    logger.info(f"data_source_id: {data_source_id}")
+                    break    
+    except Exception:
+        err_msg = traceback.format_exc()
+        logger.info(f"error message: {err_msg}")
+
+    return knowledge_base_id, data_source_id
+
+if not knowledge_base_id or not data_source_id:
+    knowledge_base_id, data_source_id = update_rag_info()
+
+def sync_data_source():
+    if knowledge_base_id and data_source_id:
+        try:
+            bedrock_client = boto3.client(
+                service_name='bedrock-agent',
+                region_name=region
+            )
+                
+            response = bedrock_client.start_ingestion_job(
+                knowledgeBaseId=knowledge_base_id,
+                dataSourceId=data_source_id
+            )
+            logger.info(f"(start_ingestion_job) response: {response}")
+        except Exception:
+            err_msg = traceback.format_exc()
+            logger.info(f"error message: {err_msg}")

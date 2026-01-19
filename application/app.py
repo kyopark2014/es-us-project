@@ -175,6 +175,9 @@ with st.sidebar:
     if mode=='이미지 분석':
         st.subheader("🌇 이미지 업로드")
         uploaded_file = st.file_uploader("이미지 분석을 위한 파일을 선택합니다.", type=["png", "jpg", "jpeg"])
+    elif mode=='RAG' or mode=="Agent" or mode=="Agent (Chat)":
+        st.subheader("📋 문서 업로드")
+        uploaded_file = st.file_uploader("RAG를 위한 파일을 선택합니다.", type=["pdf", "txt", "py", "md", "csv", "json"], key=chat.fileId)
 
     chat.update(modelName, debugMode, reasoningMode)    
 
@@ -196,6 +199,35 @@ file_bytes = None
 state_of_code_interpreter = False
 if uploaded_file is not None and clear_button==False:
     logger.info(f"uploaded_file.name: {uploaded_file.name}")
+    if uploaded_file.name:
+        logger.info(f"csv type? {uploaded_file.name.lower().endswith(('.csv'))}")
+
+    if uploaded_file and uploaded_file.name and not mode == '이미지 분석':
+        chat.initiate()
+
+        if debugMode=='Enable':
+            status = '선택한 파일을 업로드합니다.'
+            logger.info(f"status: {status}")
+            st.info(status)
+
+        file_name = uploaded_file.name
+        logger.info(f"uploading... file_name: {file_name}")
+        file_url = chat.upload_to_s3(uploaded_file.getvalue(), file_name)
+        logger.info(f"file_url: {file_url}")
+
+        import utils
+        utils.sync_data_source()  # sync uploaded files
+            
+        status = f'선택한 "{file_name}"의 내용을 요약합니다.'
+        if debugMode=='Enable':
+            logger.info(f"status: {status}")
+            st.info(status)
+    
+        msg = chat.get_summary_of_uploaded_file(file_name, st)
+        st.session_state.messages.append({"role": "assistant", "content": f"선택한 문서({file_name})를 요약하면 아래와 같습니다.\n\n{msg}"})    
+        logger.info(f"msg: {msg}")
+
+        st.write(msg)
 
     if uploaded_file and clear_button==False and mode == '이미지 분석':
         st.image(uploaded_file, caption="이미지 미리보기", use_container_width=True)
