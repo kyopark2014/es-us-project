@@ -110,11 +110,8 @@ def load_config(mcp_type):
         return {
             "mcpServers": {
                 "terminal-mcp": {
-                    "command": "npx",
-                    "args": [
-                        "-y",
-                        "terminal-mcp"
-                    ]
+                    "command": "terminal-mcp",
+                    "args": []
                 }
             }
         }    
@@ -125,10 +122,8 @@ def load_config(mcp_type):
         return {
             "mcpServers": {
                 "filesystem": {
-                    "command": "npx",
+                    "command": "mcp-server-filesystem",
                     "args": [
-                        "-y",
-                        "@modelcontextprotocol/server-filesystem",
                         f"{parent_dir}",
                         f"{workingDir}",
                         f"{contents_dir}"
