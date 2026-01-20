@@ -109,11 +109,9 @@ def load_config(mcp_type):
     elif mcp_type == "terminal (linux)":
         return {
             "mcpServers": {
-                "terminal-mcp": {
-                    "command": "node",
-                    "args": [
-                        "/usr/lib/node_modules/terminal-mcp/index.js"
-                    ]
+                "terminal-control": {
+                    "command": "terminal-control-mcp",
+                    "args": []
                 }
             }
         }    

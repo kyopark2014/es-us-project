@@ -9,7 +9,11 @@ RUN apt-get update && apt-get install -y curl && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install MCP packages globally
-RUN npm install -g @modelcontextprotocol/server-filesystem terminal-mcp
+RUN npm install -g @modelcontextprotocol/server-filesystem
+
+# Install terminal-control-mcp (Python-based terminal MCP server)
+RUN apt-get update && apt-get install -y tmux && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN pip install terminal-control-mcp
 
 # Install Python packages
 RUN pip install streamlit streamlit-chat
