@@ -112,7 +112,7 @@ def load_config(mcp_type):
                 "terminal-mcp": {
                     "command": "node",
                     "args": [
-                        "/usr/lib/node_modules/terminal-mcp/dist/index.js"
+                        "/usr/lib/node_modules/terminal-mcp/index.js"
                     ]
                 }
             }
