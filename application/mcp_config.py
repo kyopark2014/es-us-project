@@ -128,6 +128,7 @@ def load_config(mcp_type):
                     "command": "npx",
                     "args": [
                         "@modelcontextprotocol/server-filesystem",
+                        f"{parent_dir}",
                         f"{workingDir}",
                         f"{contents_dir}"
                     ]
