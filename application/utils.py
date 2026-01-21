@@ -204,6 +204,8 @@ region = config.get('region')
 s3_bucket = config.get('s3_bucket')
 
 def update_rag_info():
+    knowledge_base_id = None
+    data_source_id = None
     try: 
         client = boto3.client(
             service_name='bedrock-agent',
