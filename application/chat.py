@@ -174,6 +174,12 @@ def save_chat_history(text, msg):
             memory_chain.chat_memory.add_ai_message(msg) 
 
 selected_chat = 0
+def get_max_output_tokens(model_id: str = "") -> int:
+    """Return the max output tokens based on the model ID."""
+    if "claude-4" in model_id or "claude-sonnet-4" in model_id or "claude-opus-4" in model_id or "claude-haiku-4" in model_id:
+        return 16384
+    return 8192
+    
 def get_chat(extended_thinking):
     global selected_chat, model_type
 
@@ -187,7 +193,7 @@ def get_chat(extended_thinking):
     modelId = profile['model_id']
     model_type = profile['model_type']
     if model_type == 'claude':
-        maxOutputTokens = 4096 # 4k
+        maxOutputTokens = get_max_output_tokens(modelId)
     else:
         maxOutputTokens = 5120 # 5k
     number_of_models = len(models)
